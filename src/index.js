@@ -1,4 +1,5 @@
 require("dotenv").config();
+
 console.log("Loaded managers:", process.env.MANAGER_IDS);
 console.log("Loaded manager names:", process.env.MANAGER_NAMES);
 
@@ -9,7 +10,6 @@ const {
   GatewayIntentBits,
   Partials,
   Events,
-  EmbedBuilder
 } = require("discord.js");
 
 const {
@@ -20,6 +20,7 @@ const {
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent,
   ],
@@ -40,6 +41,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
     });
 
     await startMatchFlow(client, interaction.user);
+    return;
+  }
+
+  if (interaction.commandName === "availability") {
+    await handleAvailabilityCommand(interaction);
+    return;
   }
 });
 
