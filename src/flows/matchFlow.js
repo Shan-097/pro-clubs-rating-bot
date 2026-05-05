@@ -1,7 +1,7 @@
+const { EmbedBuilder } = require("discord.js");
 const { appendToGoogleSheet } = require("../lib/googleSheets");
 const { findBestPlayerMatch } = require("../lib/playerMatcher");
 const formations = require("../data/formations.json");
-const { EmbedBuilder } = require("discord.js");
 
 const activeFlows = new Map();
 const matches = new Map();
@@ -21,18 +21,8 @@ function getFormationNames() {
   return Object.keys(formations);
 }
 
-function isValidFormation(formation) {
-  return Boolean(formations[formation]);
-}
-
 function getFormationPositions(formation) {
   return formations[formation] || [];
-}
-
-function buildLineupTemplate(formation) {
-  return getFormationPositions(formation)
-    .map((position) => `${position}: Player`)
-    .join("\n");
 }
 
 function getManagerIds() {
@@ -49,106 +39,8 @@ function getManagerNames() {
     .filter(Boolean);
 }
 
-function parseLineup(text) {
-  const lines = text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const lineup = [];
-  const corrections = [];
-  const unresolved = [];
-
-  for (const line of lines) {
-    const parts = line.split(":");
-
-    if (parts.length < 2) continue;
-
-    const position = parts[0].trim().toUpperCase();
-    const typedPlayerName = parts.slice(1).join(":").trim();
-
-    if (!position || !typedPlayerName) continue;
-
-    const match = findBestPlayerMatch(typedPlayerName);
-
-    if (!match.ok) {
-      unresolved.push({
-        position,
-        typed: typedPlayerName,
-        suggestions: match.suggestions || [],
-      });
-      continue;
-    }
-
-    if (match.confidence === "fuzzy") {
-      corrections.push({
-        position,
-        typed: typedPlayerName,
-        matched: match.matched,
-      });
-    }
-
-    lineup.push({
-      position,
-      player_name: match.matched,
-    });
-  }
-
-  return {
-    lineup,
-    corrections,
-    unresolved,
-  };
-}
-
-function parseRatings(text, lineup) {
-  const lines = text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const ratings = [];
-
-  for (const line of lines) {
-    const parts = line.split(/[: ]+/);
-
-    if (parts.length < 2) continue;
-
-    const position = parts[0].trim().toUpperCase();
-    const ratingRaw = parts[1].trim();
-
-    if (!/^\d+$/.test(ratingRaw)) {
-      throw new Error(`Invalid rating for ${position}. Use whole numbers only.`);
-    }
-
-    const rating = Number(ratingRaw);
-
-    if (rating < 1 || rating > 10) {
-      throw new Error(`Invalid rating for ${position}. Rating must be 1-10.`);
-    }
-
-    const player = lineup.find((p) => p.position === position);
-
-    if (!player) {
-      throw new Error(`Unknown position: ${position}`);
-    }
-
-    ratings.push({
-      position,
-      player_name: player.player_name,
-      rating,
-    });
-  }
-
-  const missingPositions = lineup
-    .map((p) => p.position)
-    .filter((position) => !ratings.some((r) => r.position === position));
-
-  if (missingPositions.length > 0) {
-    throw new Error(`Missing ratings for: ${missingPositions.join(", ")}`);
-  }
-
-  return ratings;
+function isCancelMessage(message) {
+  return message.content.trim().toLowerCase() === "cancel";
 }
 
 async function startMatchFlow(client, user) {
@@ -166,12 +58,9 @@ async function startMatchFlow(client, user) {
     "To exit, type `cancel`.",
   ].join("\n");
 
-  const embed = createDustyEmbed(
-    "Select the formation",
-    description
-  );
-
-  await user.send({ embeds: [embed] });
+  await user.send({
+    embeds: [createDustyEmbed("Select the formation", description)],
+  });
 }
 
 async function handleCreatorMessage(client, message, flow) {
@@ -184,13 +73,20 @@ async function handleCreatorMessage(client, message, flow) {
       selectedNumber < 1 ||
       selectedNumber > formationNames.length
     ) {
-      await message.author.send(
-        [
-          "Invalid selection. Reply with one of these numbers:",
-          "",
-          ...formationNames.map((formation, index) => `${index + 1}. ${formation}`),
-        ].join("\n")
-      );
+      await message.author.send({
+        embeds: [
+          createDustyEmbed(
+            "Invalid formation selection",
+            [
+              "Reply with one of these numbers:",
+              "",
+              ...formationNames.map((formation, index) => `**${index + 1}** ${formation}`),
+              "",
+              "To exit, type `cancel`.",
+            ].join("\n")
+          ),
+        ],
+      });
       return;
     }
 
@@ -206,18 +102,18 @@ async function handleCreatorMessage(client, message, flow) {
     activeFlows.set(message.author.id, flow);
 
     await message.author.send({
-  embeds: [
-    createDustyEmbed(
-      `Enter player for ${positions[0]}`,
-      [
-        `Formation: **${formation}**`,
-        "",
-        "Reply with only the player name.",
-        "To exit, type `cancel`.",
-      ].join("\n")
-    ),
-  ],
-});
+      embeds: [
+        createDustyEmbed(
+          `Enter player for ${positions[0]}`,
+          [
+            `Formation: **${formation}**`,
+            "",
+            "Reply with only the player name.",
+            "To exit, type `cancel`.",
+          ].join("\n")
+        ),
+      ],
+    });
 
     return;
   }
@@ -231,17 +127,24 @@ async function handleCreatorMessage(client, message, flow) {
     if (!match.ok) {
       const suggestions =
         match.suggestions && match.suggestions.length > 0
-          ? ` Suggestions: ${match.suggestions.join(", ")}`
+          ? `\nSuggestions: ${match.suggestions.join(", ")}`
           : "";
 
-      await message.author.send(
-        [
-          `I could not confidently match **${typedPlayerName}** for **${position}**.`,
-          suggestions,
-          "",
-          "Please send the player name again.",
-        ].join("\n")
-      );
+      await message.author.send({
+        embeds: [
+          createDustyEmbed(
+            "Player not found",
+            [
+              `I could not confidently match **${typedPlayerName}** for **${position}**.`,
+              suggestions,
+              "",
+              "Please send the player name again.",
+              "To exit, type `cancel`.",
+            ].join("\n")
+          ),
+        ],
+      });
+
       return;
     }
 
@@ -252,13 +155,13 @@ async function handleCreatorMessage(client, message, flow) {
 
     if (match.confidence === "fuzzy") {
       await message.author.send({
-  embeds: [
-    createDustyEmbed(
-      "Player name corrected",
-      `Auto-corrected **${typedPlayerName}** → **${match.matched}**.`
-    ),
-  ],
-});
+        embeds: [
+          createDustyEmbed(
+            "Player name corrected",
+            `Auto-corrected **${typedPlayerName}** → **${match.matched}**.`
+          ),
+        ],
+      });
     }
 
     flow.currentPositionIndex += 1;
@@ -268,18 +171,19 @@ async function handleCreatorMessage(client, message, flow) {
 
       activeFlows.set(message.author.id, flow);
 
-     await message.author.send({
-  embeds: [
-    createDustyEmbed(
-      `Enter player for ${nextPosition}`,
-      [
-        `Saved **${position}: ${match.matched}**`,
-        "",
-        "Reply with only the player name.",
-      ].join("\n")
-    ),
-  ],
-});
+      await message.author.send({
+        embeds: [
+          createDustyEmbed(
+            `Enter player for ${nextPosition}`,
+            [
+              `Saved **${position}: ${match.matched}**`,
+              "",
+              "Reply with only the player name.",
+              "To exit, type `cancel`.",
+            ].join("\n")
+          ),
+        ],
+      });
 
       return;
     }
@@ -304,9 +208,14 @@ async function finishLineupCollection(client, message, flow) {
   const managerIds = getManagerIds();
 
   if (managerIds.length === 0) {
-    await message.author.send(
-      "No managers are configured. Add MANAGER_IDS to your .env and restart the bot."
-    );
+    await message.author.send({
+      embeds: [
+        createDustyEmbed(
+          "No managers configured",
+          "Add `MANAGER_IDS` to your `.env` and restart the bot."
+        ),
+      ],
+    });
     return;
   }
 
@@ -321,18 +230,20 @@ async function finishLineupCollection(client, message, flow) {
     });
 
     await managerUser.send({
-  embeds: [
-    createDustyEmbed(
-      `Rate ${lineup[0].position} - ${lineup[0].player_name}`,
-      [
-        `Formation: **${flow.formation}**`,
-        "",
-        "Reply with a whole number from **1** to **10**.",
-        "No decimals.",
-      ].join("\n")
-    ),
-  ],
-});
+      embeds: [
+        createDustyEmbed(
+          `Rate ${lineup[0].position} - ${lineup[0].player_name}`,
+          [
+            `Formation: **${flow.formation}**`,
+            "",
+            "Reply with a whole number from **1** to **10**.",
+            "Use `-` if you cannot decide.",
+            "No decimals.",
+            "To exit, type `cancel`.",
+          ].join("\n")
+        ),
+      ],
+    });
   }
 
   const creatorIsManager = managerIds.includes(String(message.author.id));
@@ -342,45 +253,69 @@ async function finishLineupCollection(client, message, flow) {
   }
 
   await message.author.send({
-  embeds: [
-    createDustyEmbed(
-      "Lineup saved",
-      [
-        "```txt",
-        ...lineup.map((p) => `${p.position}: ${p.player_name}`),
-        "```",
-        "",
-        `I messaged **${managerIds.length}** managers for ratings.`,
-      ].join("\n")
-    ),
-  ],
-});
+    embeds: [
+      createDustyEmbed(
+        "Lineup saved",
+        [
+          "```txt",
+          ...lineup.map((p) => `${p.position}: ${p.player_name}`),
+          "```",
+          "",
+          `I messaged **${managerIds.length}** managers for ratings.`,
+        ].join("\n")
+      ),
+    ],
+  });
 }
 
 async function handleManagerRating(client, message, flow) {
   const match = matches.get(flow.matchId);
 
   if (!match) {
-    await message.author.send("This match is no longer active.");
+    await message.author.send({
+      embeds: [
+        createDustyEmbed("Match no longer active", "This match is no longer active."),
+      ],
+    });
     activeFlows.delete(message.author.id);
     return;
   }
 
   const ratingRaw = message.content.trim();
+  let rating;
 
-  if (!/^\d+$/.test(ratingRaw)) {
-    await message.author.send("Invalid rating. Send a whole number from 1 to 10.");
-    return;
-  }
+  if (ratingRaw === "-") {
+    rating = "";
+  } else {
+    if (!/^\d+$/.test(ratingRaw)) {
+      await message.author.send({
+        embeds: [
+          createDustyEmbed(
+            "Invalid rating",
+            "Send a whole number from **1** to **10**, or `-` if you cannot decide."
+          ),
+        ],
+      });
+      return;
+    }
 
-  const rating = Number(ratingRaw);
+    rating = Number(ratingRaw);
 
-  if (rating < 1 || rating > 10) {
-    await message.author.send("Invalid rating. Rating must be from 1 to 10.");
-    return;
+    if (rating < 1 || rating > 10) {
+      await message.author.send({
+        embeds: [
+          createDustyEmbed(
+            "Invalid rating",
+            "Rating must be from **1** to **10**, or `-` if you cannot decide."
+          ),
+        ],
+      });
+      return;
+    }
   }
 
   const player = match.lineup[flow.currentRatingIndex];
+  const shownRating = rating === "" ? "-" : rating;
 
   flow.ratings.push({
     position: player.position,
@@ -395,19 +330,21 @@ async function handleManagerRating(client, message, flow) {
 
     activeFlows.set(message.author.id, flow);
 
-   await message.author.send({
-  embeds: [
-    createDustyEmbed(
-      `Rate ${nextPlayer.position} - ${nextPlayer.player_name}`,
-      [
-        `Saved **${player.position} - ${player.player_name}: ${rating}**`,
-        "",
-        "Reply with a whole number from **1** to **10**.",
-        "No decimals.",
-      ].join("\n")
-    ),
-  ],
-});
+    await message.author.send({
+      embeds: [
+        createDustyEmbed(
+          `Rate ${nextPlayer.position} - ${nextPlayer.player_name}`,
+          [
+            `Saved **${player.position} - ${player.player_name}: ${shownRating}**`,
+            "",
+            "Reply with a whole number from **1** to **10**.",
+            "Use `-` if you cannot decide.",
+            "No decimals.",
+            "To exit, type `cancel`.",
+          ].join("\n")
+        ),
+      ],
+    });
 
     return;
   }
@@ -416,13 +353,13 @@ async function handleManagerRating(client, message, flow) {
   activeFlows.delete(message.author.id);
 
   await message.author.send({
-  embeds: [
-    createDustyEmbed(
-      "Ratings saved",
-      "Thank you. Your ratings have been submitted."
-    ),
-  ],
-});
+    embeds: [
+      createDustyEmbed(
+        "Ratings saved",
+        "Thank you. Your ratings have been submitted."
+      ),
+    ],
+  });
 
   try {
     await maybePostSummary(client, match.matchId);
@@ -435,13 +372,18 @@ async function handleManagerRating(client, message, flow) {
         : summaryError.message;
 
     try {
-      await message.author.send(
-        [
-          "Your ratings were saved, but I had a problem creating the summary or writing to the sheet.",
-          "",
-          `Error: ${safeError}`,
-        ].join("\n")
-      );
+      await message.author.send({
+        embeds: [
+          createDustyEmbed(
+            "Summary or sheet error",
+            [
+              "Your ratings were saved, but I had a problem creating the summary or writing to the sheet.",
+              "",
+              `Error: ${safeError}`,
+            ].join("\n")
+          ),
+        ],
+      });
     } catch (dmError) {
       console.error("Could not DM summary error:", dmError.message);
     }
@@ -465,50 +407,52 @@ async function maybePostSummary(client, matchId) {
   const rawRows = [];
 
   for (const player of match.lineup) {
-  const ratingsForPlayer = managerIds.map((managerId) => {
-    const managerRatings = match.ratingsByManager.get(managerId) || [];
-    const found = managerRatings.find((r) => r.position === player.position);
-    return found ? found.rating : "";
-  });
+    const ratingsForPlayer = managerIds.map((managerId) => {
+      const managerRatings = match.ratingsByManager.get(managerId) || [];
+      const found = managerRatings.find((r) => r.position === player.position);
+      return found ? found.rating : "";
+    });
 
-  const validRatings = ratingsForPlayer
-    .map((rating) => Number(rating))
-    .filter((rating) => !Number.isNaN(rating));
+    const validRatings = ratingsForPlayer
+      .filter((rating) => rating !== "" && rating !== "-")
+      .map((rating) => Number(rating))
+      .filter((rating) => !Number.isNaN(rating));
 
-  const average =
-    validRatings.length > 0
-      ? validRatings.reduce((sum, rating) => sum + rating, 0) / validRatings.length
-      : 0;
+    const average =
+      validRatings.length > 0
+        ? validRatings.reduce((sum, rating) => sum + rating, 0) / validRatings.length
+        : null;
 
-  const managerRatingColumns = ["", "", ""];
+    const managerRatingColumns = ["", "", ""];
 
-  for (let i = 0; i < Math.min(managerIds.length, 3); i++) {
-    managerRatingColumns[i] = ratingsForPlayer[i] || "";
-  }
+    for (let i = 0; i < Math.min(managerIds.length, 3); i++) {
+      managerRatingColumns[i] =
+        ratingsForPlayer[i] === "" ? "-" : ratingsForPlayer[i];
+    }
 
-  summaryRows.push([
-    match.matchId,
-    date,
-    match.formation,
-    player.position,
-    player.player_name,
-    ...managerRatingColumns,
-    average.toFixed(1),
-  ]);
-
-  managerIds.forEach((managerId, index) => {
-    rawRows.push([
+    summaryRows.push([
       match.matchId,
       date,
       match.formation,
       player.position,
       player.player_name,
-      managerId,
-      managerNames[index] || `Manager ${index + 1}`,
-      ratingsForPlayer[index] || "",
+      ...managerRatingColumns,
+      average === null ? "-" : average.toFixed(1),
     ]);
-  });
-}
+
+    managerIds.forEach((managerId, index) => {
+      rawRows.push([
+        match.matchId,
+        date,
+        match.formation,
+        player.position,
+        player.player_name,
+        managerId,
+        managerNames[index] || `Manager ${index + 1}`,
+        ratingsForPlayer[index] === "" ? "-" : ratingsForPlayer[index],
+      ]);
+    });
+  }
 
   await appendToGoogleSheet(summaryRows, rawRows);
 
@@ -520,64 +464,70 @@ async function maybePostSummary(client, matchId) {
     return `${position} - ${player}: ${average}`;
   });
 
- const channel = await client.channels.fetch(process.env.RESULT_CHANNEL_ID);
+  const channel = await client.channels.fetch(process.env.RESULT_CHANNEL_ID);
 
-const header = [
-  "# Match Ratings Summary",
-  "",
-  `Match ID: **${match.matchId}**`,
-  `Formation: **${match.formation}**`,
-  "",
-].join("\n");
+  const header = [
+    "# Match Ratings Summary",
+    "",
+    `Match ID: **${match.matchId}**`,
+    `Formation: **${match.formation}**`,
+    "",
+  ].join("\n");
 
-const body = [
-  "```txt",
-  ...summaryLines,
-  "```",
-].join("\n");
+  const body = [
+    "```txt",
+    ...summaryLines,
+    "```",
+  ].join("\n");
 
-const footer = "\nSaved to Google Sheets.";
+  const footer = "\nSaved to Google Sheets.";
 
-const fullMessage = `${header}${body}${footer}`;
+  const fullMessage = `${header}${body}${footer}`;
 
-if (fullMessage.length <= 1900) {
-  await channel.send(fullMessage);
-} else {
-  await channel.send(header);
+  if (fullMessage.length <= 1900) {
+    await channel.send(fullMessage);
+  } else {
+    await channel.send(header);
 
-  const chunks = [];
-  let currentChunk = "";
+    const chunks = [];
+    let currentChunk = "";
 
-  for (const line of summaryLines) {
-    const nextChunk = currentChunk
-      ? `${currentChunk}\n${line}`
-      : line;
+    for (const line of summaryLines) {
+      const nextChunk = currentChunk ? `${currentChunk}\n${line}` : line;
 
-    if (nextChunk.length > 1700) {
-      chunks.push(currentChunk);
-      currentChunk = line;
-    } else {
-      currentChunk = nextChunk;
+      if (nextChunk.length > 1700) {
+        chunks.push(currentChunk);
+        currentChunk = line;
+      } else {
+        currentChunk = nextChunk;
+      }
     }
+
+    if (currentChunk) {
+      chunks.push(currentChunk);
+    }
+
+    for (const chunk of chunks) {
+      await channel.send(["```txt", chunk, "```"].join("\n"));
+    }
+
+    await channel.send("Saved to Google Sheets.");
   }
 
-  if (currentChunk) {
-    chunks.push(currentChunk);
-  }
-
-  for (const chunk of chunks) {
-    await channel.send(["```txt", chunk, "```"].join("\n"));
-  }
-
-  await channel.send("Saved to Google Sheets.");
-}
-
-matches.delete(matchId);
-
- 
+  matches.delete(matchId);
 }
 
 async function handleDmMessage(client, message) {
+  if (isCancelMessage(message)) {
+    activeFlows.delete(message.author.id);
+    await message.author.send({
+      embeds: [
+        createDustyEmbed("Flow cancelled", "Your active match/rating flow has been cancelled."),
+      ],
+    });
+    return;
+  }
+
   const flow = activeFlows.get(message.author.id);
 
   if (!flow) {
