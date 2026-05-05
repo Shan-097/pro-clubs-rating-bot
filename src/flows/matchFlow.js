@@ -43,6 +43,27 @@ function isCancelMessage(message) {
   return message.content.trim().toLowerCase() === "cancel";
 }
 
+function parseMatchDate(input) {
+  const value = input.trim().toLowerCase();
+  const today = new Date();
+
+  if (value === "today") {
+    return today.toISOString().slice(0, 10);
+  }
+
+  if (value === "yesterday") {
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    return yesterday.toISOString().slice(0, 10);
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  return null;
+}
+
 async function startMatchFlow(client, user) {
   const formationNames = getFormationNames();
 
@@ -51,15 +72,20 @@ async function startMatchFlow(client, user) {
     step: "formation_select",
   });
 
-  const description = [
-    ...formationNames.map((formation, index) => `**${index + 1}** ${formation}`),
-    "",
-    "**Enter a number to select an option**",
-    "To exit, type `cancel`.",
-  ].join("\n");
-
   await user.send({
-    embeds: [createDustyEmbed("Select the formation", description)],
+    embeds: [
+      createDustyEmbed(
+        "Select the formation",
+        [
+          ...formationNames.map(
+            (formation, index) => `**${index + 1}** ${formation}`
+          ),
+          "",
+          "**Enter a number to select an option**",
+          "To exit, type `cancel`.",
+        ].join("\n")
+      ),
+    ],
   });
 }
 
@@ -80,7 +106,9 @@ async function handleCreatorMessage(client, message, flow) {
             [
               "Reply with one of these numbers:",
               "",
-              ...formationNames.map((formation, index) => `**${index + 1}** ${formation}`),
+              ...formationNames.map(
+                (formation, index) => `**${index + 1}** ${formation}`
+              ),
               "",
               "To exit, type `cancel`.",
             ].join("\n")
@@ -97,6 +125,56 @@ async function handleCreatorMessage(client, message, flow) {
     flow.positions = positions;
     flow.currentPositionIndex = 0;
     flow.lineup = [];
+    flow.step = "match_date";
+
+    activeFlows.set(message.author.id, flow);
+
+    await message.author.send({
+      embeds: [
+        createDustyEmbed(
+          "Enter match date",
+          [
+            `Formation selected: **${formation}**`,
+            "",
+            "Reply with the match date.",
+            "",
+            "Examples:",
+            "`today`",
+            "`yesterday`",
+            "`2026-05-05`",
+            "",
+            "To exit, type `cancel`.",
+          ].join("\n")
+        ),
+      ],
+    });
+
+    return;
+  }
+
+  if (flow.step === "match_date") {
+    const matchDate = parseMatchDate(message.content);
+
+    if (!matchDate) {
+      await message.author.send({
+        embeds: [
+          createDustyEmbed(
+            "Invalid date",
+            [
+              "Use one of these formats:",
+              "`today`",
+              "`yesterday`",
+              "`YYYY-MM-DD`",
+              "",
+              "To exit, type `cancel`.",
+            ].join("\n")
+          ),
+        ],
+      });
+      return;
+    }
+
+    flow.matchDate = matchDate;
     flow.step = "lineup_position";
 
     activeFlows.set(message.author.id, flow);
@@ -104,9 +182,10 @@ async function handleCreatorMessage(client, message, flow) {
     await message.author.send({
       embeds: [
         createDustyEmbed(
-          `Enter player for ${positions[0]}`,
+          `Enter player for ${flow.positions[0]}`,
           [
-            `Formation: **${formation}**`,
+            `Date: **${matchDate}**`,
+            `Formation: **${flow.formation}**`,
             "",
             "Reply with only the player name.",
             "To exit, type `cancel`.",
@@ -144,7 +223,6 @@ async function handleCreatorMessage(client, message, flow) {
           ),
         ],
       });
-
       return;
     }
 
@@ -198,6 +276,7 @@ async function finishLineupCollection(client, message, flow) {
 
   matches.set(matchId, {
     matchId,
+    matchDate: flow.matchDate,
     createdBy: message.author.id,
     formation: flow.formation,
     lineup,
@@ -234,6 +313,7 @@ async function finishLineupCollection(client, message, flow) {
         createDustyEmbed(
           `Rate ${lineup[0].position} - ${lineup[0].player_name}`,
           [
+            `Date: **${flow.matchDate}**`,
             `Formation: **${flow.formation}**`,
             "",
             "Reply with a whole number from **1** to **10**.",
@@ -257,6 +337,9 @@ async function finishLineupCollection(client, message, flow) {
       createDustyEmbed(
         "Lineup saved",
         [
+          `Date: **${flow.matchDate}**`,
+          `Formation: **${flow.formation}**`,
+          "",
           "```txt",
           ...lineup.map((p) => `${p.position}: ${p.player_name}`),
           "```",
@@ -274,7 +357,10 @@ async function handleManagerRating(client, message, flow) {
   if (!match) {
     await message.author.send({
       embeds: [
-        createDustyEmbed("Match no longer active", "This match is no longer active."),
+        createDustyEmbed(
+          "Match no longer active",
+          "This match is no longer active."
+        ),
       ],
     });
     activeFlows.delete(message.author.id);
@@ -397,11 +483,15 @@ async function maybePostSummary(client, matchId) {
   const managerIds = getManagerIds();
   const managerNames = getManagerNames();
 
+  console.log(
+    `Ratings submitted for match ${matchId}: ${match.ratingsByManager.size}/${managerIds.length}`
+  );
+
   if (match.ratingsByManager.size < managerIds.length) {
     return;
   }
 
-  const date = match.createdAt.toISOString().slice(0, 10);
+  const date = match.matchDate || match.createdAt.toISOString().slice(0, 10);
 
   const summaryRows = [];
   const rawRows = [];
@@ -420,7 +510,8 @@ async function maybePostSummary(client, matchId) {
 
     const average =
       validRatings.length > 0
-        ? validRatings.reduce((sum, rating) => sum + rating, 0) / validRatings.length
+        ? validRatings.reduce((sum, rating) => sum + rating, 0) /
+          validRatings.length
         : null;
 
     const managerRatingColumns = ["", "", ""];
@@ -470,18 +561,13 @@ async function maybePostSummary(client, matchId) {
     "# Match Ratings Summary",
     "",
     `Match ID: **${match.matchId}**`,
+    `Date: **${date}**`,
     `Formation: **${match.formation}**`,
     "",
   ].join("\n");
 
-  const body = [
-    "```txt",
-    ...summaryLines,
-    "```",
-  ].join("\n");
-
+  const body = ["```txt", ...summaryLines, "```"].join("\n");
   const footer = "\nSaved to Google Sheets.";
-
   const fullMessage = `${header}${body}${footer}`;
 
   if (fullMessage.length <= 1900) {
@@ -520,11 +606,16 @@ async function maybePostSummary(client, matchId) {
 async function handleDmMessage(client, message) {
   if (isCancelMessage(message)) {
     activeFlows.delete(message.author.id);
+
     await message.author.send({
       embeds: [
-        createDustyEmbed("Flow cancelled", "Your active match/rating flow has been cancelled."),
+        createDustyEmbed(
+          "Flow cancelled",
+          "Your active match/rating flow has been cancelled."
+        ),
       ],
     });
+
     return;
   }
 
