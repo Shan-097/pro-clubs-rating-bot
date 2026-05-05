@@ -17,12 +17,7 @@ const commands = [
         .setDescription("Discord message link to the Apollo event message.")
         .setRequired(true)
     )
-    .addStringOption((option) =>
-      option
-        .setName("players")
-        .setDescription("Full player list, comma separated.")
-        .setRequired(true)
-    )
+    
     .addStringOption((option) =>
       option
         .setName("selected")
