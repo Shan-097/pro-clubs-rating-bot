@@ -5,6 +5,15 @@ const allPlayers = require("../data/players.json");
 
 const DUSTY_PURPLE = 0x7B2CFF;
 
+const NAME_ALIASES = {
+  ecp97: "ecp",
+  "lil rhys": "rhys",
+  dan18: "dan",
+  agætian: "dave",
+  agetian: "dave",
+};
+
+
 function createEmbed(title, description) {
   return new EmbedBuilder()
     .setColor(DUSTY_PURPLE)
@@ -24,11 +33,13 @@ function parseDiscordMessageLink(link) {
 }
 
 function normalizeName(name) {
-  return String(name || "")
+  const cleaned = String(name || "")
     .replace(/\([^)]*\)/g, "")
-    .replace(/[^\w\s-]/g, "")
+    .replace(/[^\w\s-æøåÆØÅ]/g, "")
     .trim()
     .toLowerCase();
+
+  return NAME_ALIASES[cleaned] || cleaned;
 }
 
 function cleanApolloName(line) {
