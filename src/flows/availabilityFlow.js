@@ -41,11 +41,13 @@ function normalizeName(name) {
     .trim()
     .toLowerCase();
 
-  cleaned = cleaned
+    cleaned = cleaned
     .replace("agtitan", "dave")
     .replace("agetian", "dave")
     .replace("agtian", "dave")
     .replace("agytitan", "dave")
+    .replace("agtetian", "dave")
+    .replace("ag tian", "dave")
     .replace("ecp97", "ecp")
     .replace("lil rhys", "rhys")
     .replace("dan18", "dan");
@@ -57,7 +59,6 @@ function cleanApolloName(line) {
   return String(line || "")
     .replace(/^[✅❌❔🔔\s]+/g, "")
     .replace(/\([^)]*\)/g, "")
-    .replace(/[^\w\s-]/g, "")
     .trim();
 }
 
