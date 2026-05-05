@@ -1,5 +1,7 @@
 const { EmbedBuilder } = require("discord.js");
 const { appendAvailabilityToGoogleSheet } = require("../lib/googleSheets");
+const allPlayers = require("../data/players.json");
+
 
 const DUSTY_PURPLE = 0x7B2CFF;
 
@@ -104,7 +106,6 @@ function toNameSet(names) {
 
 async function handleAvailabilityCommand(interaction) {
   const messageLink = interaction.options.getString("message_link", true);
-  const allPlayersText = interaction.options.getString("players", true);
   const selectedPlayersText = interaction.options.getString("selected", false) || "";
 
   await interaction.deferReply({ ephemeral: true });
@@ -128,7 +129,7 @@ async function handleAvailabilityCommand(interaction) {
 
   const { accepted, declined, eventTitle, eventDate } = parseApolloAvailability(embed);
 
-  const allPlayers = parseCsvNames(allPlayersText);
+ 
   const selectedPlayers = parseCsvNames(selectedPlayersText);
 
   const acceptedSet = toNameSet(accepted);
