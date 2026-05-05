@@ -2,6 +2,8 @@ require("dotenv").config();
 console.log("Loaded managers:", process.env.MANAGER_IDS);
 console.log("Loaded manager names:", process.env.MANAGER_NAMES);
 
+const { handleAvailabilityCommand } = require("./flows/availabilityFlow");
+
 const {
   Client,
   GatewayIntentBits,

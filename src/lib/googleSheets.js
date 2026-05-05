@@ -1,4 +1,4 @@
-async function appendToGoogleSheet(summaryRows, rawRows) {
+async function postToGoogleSheet(payload) {
   const webhookUrl = process.env.GOOGLE_SCRIPT_WEBHOOK_URL;
   const secret = process.env.GOOGLE_SCRIPT_SECRET;
 
@@ -13,8 +13,7 @@ async function appendToGoogleSheet(summaryRows, rawRows) {
     },
     body: JSON.stringify({
       secret,
-      summaryRows,
-      rawRows,
+      ...payload,
     }),
   });
 
@@ -24,7 +23,7 @@ async function appendToGoogleSheet(summaryRows, rawRows) {
   try {
     result = JSON.parse(text);
   } catch {
-    throw new Error(`Google Script returned non-JSON response: ${text}`);
+    throw new Error(`Google Script returned non-JSON response: ${text.slice(0, 300)}...`);
   }
 
   if (!result.ok) {
@@ -34,6 +33,22 @@ async function appendToGoogleSheet(summaryRows, rawRows) {
   return result;
 }
 
+async function appendToGoogleSheet(summaryRows, rawRows) {
+  return postToGoogleSheet({
+    type: "ratings",
+    summaryRows,
+    rawRows,
+  });
+}
+
+async function appendAvailabilityToGoogleSheet(availabilityRows) {
+  return postToGoogleSheet({
+    type: "availability",
+    availabilityRows,
+  });
+}
+
 module.exports = {
   appendToGoogleSheet,
+  appendAvailabilityToGoogleSheet,
 };
