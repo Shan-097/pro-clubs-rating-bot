@@ -33,13 +33,24 @@ function parseDiscordMessageLink(link) {
 }
 
 function normalizeName(name) {
-  const cleaned = String(name || "")
+  let cleaned = String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/\([^)]*\)/g, "")
-    .replace(/[^\w\s-æøåÆØÅ]/g, "")
+    .replace(/[^\w\s-]/g, "")
     .trim()
     .toLowerCase();
 
-  return NAME_ALIASES[cleaned] || cleaned;
+  cleaned = cleaned
+    .replace("agtitan", "dave")
+    .replace("agetian", "dave")
+    .replace("agtian", "dave")
+    .replace("agytitan", "dave")
+    .replace("ecp97", "ecp")
+    .replace("lil rhys", "rhys")
+    .replace("dan18", "dan");
+
+  return cleaned;
 }
 
 function cleanApolloName(line) {
