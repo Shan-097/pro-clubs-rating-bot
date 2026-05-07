@@ -33,6 +33,13 @@ async function postToGoogleSheet(payload) {
   return result;
 }
 
+async function appendReplacementToGoogleSheet(replacementRows) {
+  return postToGoogleSheet({
+    type: "replacement",
+    replacementRows,
+  });
+}
+
 async function appendToGoogleSheet(summaryRows, rawRows) {
   return postToGoogleSheet({
     type: "ratings",
@@ -51,4 +58,10 @@ async function appendAvailabilityToGoogleSheet(availabilityRows) {
 module.exports = {
   appendToGoogleSheet,
   appendAvailabilityToGoogleSheet,
+};
+
+module.exports = {
+  appendToGoogleSheet,
+  appendAvailabilityToGoogleSheet,
+  appendReplacementToGoogleSheet,
 };

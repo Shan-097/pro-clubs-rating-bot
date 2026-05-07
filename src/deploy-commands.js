@@ -18,6 +18,23 @@ const commands = [
         .setRequired(true)
     )
     
+new SlashCommandBuilder()
+  .setName("replace")
+  .setDescription("Log that a selected player pulled out or had to be replaced.")
+  .addStringOption((option) =>
+    option
+      .setName("player")
+      .setDescription("The player who pulled out.")
+      .setRequired(true)
+  )
+  .addStringOption((option) =>
+    option
+      .setName("reason")
+      .setDescription("Reason for the replacement.")
+      .setRequired(true)
+  )
+  .toJSON(),
+
     .addStringOption((option) =>
       option
         .setName("selected")

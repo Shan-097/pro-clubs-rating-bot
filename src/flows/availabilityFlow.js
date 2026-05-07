@@ -48,6 +48,7 @@ function normalizeName(name) {
     .replace("agytitan", "dave")
     .replace("agtetian", "dave")
     .replace("ag tian", "dave")
+    .replace("agetitan", "dave")
     .replace("ecp97", "ecp")
     .replace("lil rhys", "rhys")
     .replace("dan18", "dan");

@@ -4,6 +4,7 @@ console.log("Loaded managers:", process.env.MANAGER_IDS);
 console.log("Loaded manager names:", process.env.MANAGER_NAMES);
 
 const { handleAvailabilityCommand } = require("./flows/availabilityFlow");
+const { handleReplaceCommand } = require("./flows/replacementFlow");
 
 const {
   Client,
@@ -33,6 +34,11 @@ client.once(Events.ClientReady, () => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
+
+if (interaction.commandName === "replace") {
+  await handleReplaceCommand(interaction);
+  return;
+}
 
   if (interaction.commandName === "match") {
     await interaction.reply({
