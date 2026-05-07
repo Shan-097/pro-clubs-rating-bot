@@ -36,24 +36,16 @@ const commands = [
     )
     .toJSON(),
 
-  
-new SlashCommandBuilder()
-  .setName("replace")
-  .setDescription("Log that a selected player pulled out or had to be replaced.")
-  .addStringOption((option) =>
-    option
-      .setName("player")
-      .setDescription("The player who pulled out.")
-      .setRequired(true)
-  )
-  .addStringOption((option) =>
-    option
-      .setName("reason")
-      .setDescription("Reason for the replacement.")
-      .setRequired(true)
-  )
-  .toJSON(),
-
+  new SlashCommandBuilder()
+    .setName("availability")
+    .setDescription("Read Apollo availability and send it to Google Sheets.")
+    .addStringOption((option) =>
+      option
+        .setName("message_link")
+        .setDescription("Discord message link to the Apollo event message.")
+        .setRequired(true)
+    )
+    .toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
