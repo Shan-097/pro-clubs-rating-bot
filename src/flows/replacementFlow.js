@@ -1,5 +1,6 @@
 const { EmbedBuilder } = require("discord.js");
 const { appendReplacementToGoogleSheet } = require("../lib/googleSheets");
+const { replacePendingLineupPlayer } = require("./matchFlow");
 
 const DUSTY_PURPLE = 0x7B2CFF;
 
@@ -16,18 +17,34 @@ function getTodayDate() {
 
 async function handleReplaceCommand(interaction) {
   const player = interaction.options.getString("player", true).trim();
+  const replacement = interaction.options.getString("replacement", true).trim();
   const reason = interaction.options.getString("reason", true).trim();
 
   await interaction.deferReply({ ephemeral: true });
 
-  const date = getTodayDate();
+  const result = await replacePendingLineupPlayer(
+    interaction.user.id,
+    player,
+    replacement
+  );
+
+  if (!result.ok) {
+    await interaction.editReply({
+      embeds: [createEmbed("Replacement failed", result.error)],
+    });
+    return;
+  }
+
+  const date = result.matchDate || getTodayDate();
 
   const replacementRows = [[
     date,
-    player,
+    result.oldPlayer,
     reason,
     interaction.user.username,
     "discord",
+    result.newPlayer,
+    result.position,
   ]];
 
   await appendReplacementToGoogleSheet(replacementRows);
@@ -37,11 +54,17 @@ async function handleReplaceCommand(interaction) {
       createEmbed(
         "Replacement logged",
         [
-          `Player: **${player}**`,
           `Date: **${date}**`,
+          `Position: **${result.position}**`,
+          `Out: **${result.oldPlayer}**`,
+          `In: **${result.newPlayer}**`,
           `Reason: **${reason}**`,
           "",
-          "Saved to Google Sheets.",
+          "Pending lineup updated.",
+          "",
+          "```txt",
+          ...result.lineup.map((p) => `${p.position}: ${p.player_name}`),
+          "```",
         ].join("\n")
       ),
     ],

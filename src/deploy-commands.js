@@ -4,20 +4,39 @@ const { REST, Routes, SlashCommandBuilder } = require("discord.js");
 
 const commands = [
   new SlashCommandBuilder()
-    .setName("match")
-    .setDescription("Start a new match rating flow.")
+    .setName("lineup")
+    .setDescription("Create a pending lineup before ratings.")
     .toJSON(),
 
   new SlashCommandBuilder()
-    .setName("availability")
-    .setDescription("Read Apollo availability and send it to Google Sheets.")
+    .setName("match")
+    .setDescription("Start ratings for the pending lineup.")
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("replace")
+    .setDescription("Replace a player in the pending lineup.")
     .addStringOption((option) =>
       option
-        .setName("message_link")
-        .setDescription("Discord message link to the Apollo event message.")
+        .setName("player")
+        .setDescription("The player who pulled out.")
         .setRequired(true)
     )
-    
+    .addStringOption((option) =>
+      option
+        .setName("replacement")
+        .setDescription("The replacement player coming in.")
+        .setRequired(true)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("reason")
+        .setDescription("Reason for the replacement.")
+        .setRequired(true)
+    )
+    .toJSON(),
+
+  
 new SlashCommandBuilder()
   .setName("replace")
   .setDescription("Log that a selected player pulled out or had to be replaced.")
@@ -35,13 +54,6 @@ new SlashCommandBuilder()
   )
   .toJSON(),
 
-    .addStringOption((option) =>
-      option
-        .setName("selected")
-        .setDescription("Selected lineup players, comma separated.")
-        .setRequired(false)
-    )
-    .toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);

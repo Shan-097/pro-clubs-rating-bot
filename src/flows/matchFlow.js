@@ -5,6 +5,7 @@ const formations = require("../data/formations.json");
 
 const activeFlows = new Map();
 const matches = new Map();
+const pendingLineups = new Map();
 
 let matchCounter = 1;
 
@@ -47,9 +48,7 @@ function parseMatchDate(input) {
   const value = input.trim().toLowerCase();
   const today = new Date();
 
-  if (value === "today") {
-    return today.toISOString().slice(0, 10);
-  }
+  if (value === "today") return today.toISOString().slice(0, 10);
 
   if (value === "yesterday") {
     const yesterday = new Date(today);
@@ -57,14 +56,58 @@ function parseMatchDate(input) {
     return yesterday.toISOString().slice(0, 10);
   }
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return value;
-  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
 
   return null;
 }
 
-async function startMatchFlow(client, user) {
+function getPendingLineupKey(userId) {
+  return String(userId);
+}
+
+function getPendingLineup(userId) {
+  return pendingLineups.get(getPendingLineupKey(userId));
+}
+
+function setPendingLineup(userId, lineupData) {
+  pendingLineups.set(getPendingLineupKey(userId), lineupData);
+}
+
+function deletePendingLineup(userId) {
+  pendingLineups.delete(getPendingLineupKey(userId));
+}
+
+function findLineupPlayer(lineup, playerName) {
+  const typedMatch = findBestPlayerMatch(playerName);
+
+  if (!typedMatch.ok) {
+    return {
+      ok: false,
+      error: `Could not match player name: ${playerName}`,
+    };
+  }
+
+  const matchedName = typedMatch.matched;
+
+  const index = lineup.findIndex(
+    (item) => item.player_name.toLowerCase() === matchedName.toLowerCase()
+  );
+
+  if (index === -1) {
+    return {
+      ok: false,
+      error: `${matchedName} is not in the pending lineup.`,
+    };
+  }
+
+  return {
+    ok: true,
+    index,
+    matchedName,
+  };
+}
+
+async function startLineupFlow(client, user) {
   const formationNames = getFormationNames();
 
   activeFlows.set(user.id, {
@@ -266,37 +309,73 @@ async function handleCreatorMessage(client, message, flow) {
       return;
     }
 
-    await finishLineupCollection(client, message, flow);
+    await finishLineupCollection(message, flow);
   }
 }
 
-async function finishLineupCollection(client, message, flow) {
-  const lineup = flow.lineup;
-  const matchId = String(matchCounter++);
-
-  matches.set(matchId, {
-    matchId,
-    matchDate: flow.matchDate,
+async function finishLineupCollection(message, flow) {
+  setPendingLineup(message.author.id, {
     createdBy: message.author.id,
+    matchDate: flow.matchDate,
     formation: flow.formation,
-    lineup,
-    ratingsByManager: new Map(),
+    lineup: flow.lineup,
     createdAt: new Date(),
   });
+
+  activeFlows.delete(message.author.id);
+
+  await message.author.send({
+    embeds: [
+      createDustyEmbed(
+        "Pending lineup saved",
+        [
+          `Date: **${flow.matchDate}**`,
+          `Formation: **${flow.formation}**`,
+          "",
+          "```txt",
+          ...flow.lineup.map((p) => `${p.position}: ${p.player_name}`),
+          "```",
+          "",
+          "Use `/replace` if someone pulls out.",
+          "Use `/match` when the final lineup is ready for ratings.",
+        ].join("\n")
+      ),
+    ],
+  });
+}
+
+async function startMatchRatings(client, interaction) {
+  const pending = getPendingLineup(interaction.user.id);
+
+  if (!pending) {
+    await interaction.reply({
+      content: "No pending lineup found. Use `/lineup` first.",
+      ephemeral: true,
+    });
+    return;
+  }
 
   const managerIds = getManagerIds();
 
   if (managerIds.length === 0) {
-    await message.author.send({
-      embeds: [
-        createDustyEmbed(
-          "No managers configured",
-          "Add `MANAGER_IDS` to your `.env` and restart the bot."
-        ),
-      ],
+    await interaction.reply({
+      content: "No managers configured. Add MANAGER_IDS to `.env` and restart the bot.",
+      ephemeral: true,
     });
     return;
   }
+
+  const matchId = String(matchCounter++);
+
+  matches.set(matchId, {
+    matchId,
+    matchDate: pending.matchDate,
+    createdBy: pending.createdBy,
+    formation: pending.formation,
+    lineup: pending.lineup,
+    ratingsByManager: new Map(),
+    createdAt: new Date(),
+  });
 
   for (const managerId of managerIds) {
     const managerUser = await client.users.fetch(managerId);
@@ -311,10 +390,10 @@ async function finishLineupCollection(client, message, flow) {
     await managerUser.send({
       embeds: [
         createDustyEmbed(
-          `Rate ${lineup[0].position} - ${lineup[0].player_name}`,
+          `Rate ${pending.lineup[0].position} - ${pending.lineup[0].player_name}`,
           [
-            `Date: **${flow.matchDate}**`,
-            `Formation: **${flow.formation}**`,
+            `Date: **${pending.matchDate}**`,
+            `Formation: **${pending.formation}**`,
             "",
             "Reply with a whole number from **1** to **10**.",
             "Use `-` if you cannot decide.",
@@ -326,29 +405,71 @@ async function finishLineupCollection(client, message, flow) {
     });
   }
 
-  const creatorIsManager = managerIds.includes(String(message.author.id));
+  deletePendingLineup(interaction.user.id);
 
-  if (!creatorIsManager) {
-    activeFlows.delete(message.author.id);
-  }
-
-  await message.author.send({
+  await interaction.reply({
     embeds: [
       createDustyEmbed(
-        "Lineup saved",
+        "Ratings started",
         [
-          `Date: **${flow.matchDate}**`,
-          `Formation: **${flow.formation}**`,
+          `Date: **${pending.matchDate}**`,
+          `Formation: **${pending.formation}**`,
           "",
           "```txt",
-          ...lineup.map((p) => `${p.position}: ${p.player_name}`),
+          ...pending.lineup.map((p) => `${p.position}: ${p.player_name}`),
           "```",
           "",
           `I messaged **${managerIds.length}** managers for ratings.`,
         ].join("\n")
       ),
     ],
+    ephemeral: true,
   });
+}
+
+async function replacePendingLineupPlayer(userId, oldPlayerName, newPlayerName) {
+  const pending = getPendingLineup(userId);
+
+  if (!pending) {
+    return {
+      ok: false,
+      error: "No pending lineup found. Use `/lineup` first.",
+    };
+  }
+
+  const oldPlayer = findLineupPlayer(pending.lineup, oldPlayerName);
+
+  if (!oldPlayer.ok) {
+    return oldPlayer;
+  }
+
+  const newMatch = findBestPlayerMatch(newPlayerName);
+
+  if (!newMatch.ok) {
+    return {
+      ok: false,
+      error: `Could not match replacement player: ${newPlayerName}`,
+    };
+  }
+
+  const replaced = pending.lineup[oldPlayer.index];
+
+  pending.lineup[oldPlayer.index] = {
+    position: replaced.position,
+    player_name: newMatch.matched,
+  };
+
+  setPendingLineup(userId, pending);
+
+  return {
+    ok: true,
+    matchDate: pending.matchDate,
+    formation: pending.formation,
+    position: replaced.position,
+    oldPlayer: replaced.player_name,
+    newPlayer: newMatch.matched,
+    lineup: pending.lineup,
+  };
 }
 
 async function handleManagerRating(client, message, flow) {
@@ -487,9 +608,7 @@ async function maybePostSummary(client, matchId) {
     `Ratings submitted for match ${matchId}: ${match.ratingsByManager.size}/${managerIds.length}`
   );
 
-  if (match.ratingsByManager.size < managerIds.length) {
-    return;
-  }
+  if (match.ratingsByManager.size < managerIds.length) return;
 
   const date = match.matchDate || match.createdAt.toISOString().slice(0, 10);
 
@@ -589,9 +708,7 @@ async function maybePostSummary(client, matchId) {
       }
     }
 
-    if (currentChunk) {
-      chunks.push(currentChunk);
-    }
+    if (currentChunk) chunks.push(currentChunk);
 
     for (const chunk of chunks) {
       await channel.send(["```txt", chunk, "```"].join("\n"));
@@ -611,7 +728,7 @@ async function handleDmMessage(client, message) {
       embeds: [
         createDustyEmbed(
           "Flow cancelled",
-          "Your active match/rating flow has been cancelled."
+          "Your active lineup/rating flow has been cancelled."
         ),
       ],
     });
@@ -637,6 +754,8 @@ async function handleDmMessage(client, message) {
 }
 
 module.exports = {
-  startMatchFlow,
+  startLineupFlow,
+  startMatchRatings,
+  replacePendingLineupPlayer,
   handleDmMessage,
 };

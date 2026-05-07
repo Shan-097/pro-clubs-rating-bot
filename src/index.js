@@ -3,9 +3,6 @@ require("dotenv").config();
 console.log("Loaded managers:", process.env.MANAGER_IDS);
 console.log("Loaded manager names:", process.env.MANAGER_NAMES);
 
-const { handleAvailabilityCommand } = require("./flows/availabilityFlow");
-const { handleReplaceCommand } = require("./flows/replacementFlow");
-
 const {
   Client,
   GatewayIntentBits,
@@ -13,8 +10,12 @@ const {
   Events,
 } = require("discord.js");
 
+const { handleAvailabilityCommand } = require("./flows/availabilityFlow");
+const { handleReplaceCommand } = require("./flows/replacementFlow");
+
 const {
-  startMatchFlow,
+  startLineupFlow,
+  startMatchRatings,
   handleDmMessage,
 } = require("./flows/matchFlow");
 
@@ -35,18 +36,23 @@ client.once(Events.ClientReady, () => {
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-if (interaction.commandName === "replace") {
-  await handleReplaceCommand(interaction);
-  return;
-}
-
-  if (interaction.commandName === "match") {
+  if (interaction.commandName === "lineup") {
     await interaction.reply({
-      content: "I sent you a DM to start the match rating flow.",
+      content: "I sent you a DM to build the pending lineup.",
       ephemeral: true,
     });
 
-    await startMatchFlow(client, interaction.user);
+    await startLineupFlow(client, interaction.user);
+    return;
+  }
+
+  if (interaction.commandName === "match") {
+    await startMatchRatings(client, interaction);
+    return;
+  }
+
+  if (interaction.commandName === "replace") {
+    await handleReplaceCommand(interaction);
     return;
   }
 
