@@ -47,9 +47,9 @@ function crestBaseUrl() {
   return (process.env.EA_CREST_BASE_URL || DEFAULT_CREST_BASE_URL).replace(/\/$/, "");
 }
 
-function crestUrlForId(id) {
-  if (!/^\d+$/.test(String(id))) return "";
-  return `${crestBaseUrl()}/${id}.png`;
+function crestUrlsForId(id) {
+  if (!/^\d+$/.test(String(id))) return [];
+  return [`${crestBaseUrl()}/${id}.png`, `${crestBaseUrl()}/l${id}.png`];
 }
 
 function normalizeOfficialTeamCrestId(value) {
@@ -101,7 +101,9 @@ function crestUrlCandidatesFromClub(club, id) {
   const urls = [];
   if (id && process.env[`EA_LOGO_URL_${id}`]) addUnique(urls, process.env[`EA_LOGO_URL_${id}`]);
   for (const url of explicitUrls(club)) addUnique(urls, url);
-  for (const crestId of crestIdCandidates(club)) addUnique(urls, crestUrlForId(crestId));
+  for (const crestId of crestIdCandidates(club)) {
+    for (const url of crestUrlsForId(crestId)) addUnique(urls, url);
+  }
   return urls;
 }
 
