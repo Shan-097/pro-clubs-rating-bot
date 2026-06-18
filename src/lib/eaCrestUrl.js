@@ -24,6 +24,33 @@ function pick(obj, keys) {
   return undefined;
 }
 
+function looksLikeCrestKey(key) {
+  const normalized = normalizeKey(key);
+  return (
+    normalized.includes("crest") ||
+    normalized.includes("badge") ||
+    normalized.includes("logo") ||
+    normalized === "assetid"
+  );
+}
+
+function walkObject(value, visitor, seen = new Set()) {
+  if (!value || typeof value !== "object" || seen.has(value)) return undefined;
+  seen.add(value);
+
+  for (const [key, child] of Object.entries(value)) {
+    const result = visitor(key, child);
+    if (result !== undefined && result !== null && result !== "") return result;
+
+    if (child && typeof child === "object") {
+      const nested = walkObject(child, visitor, seen);
+      if (nested !== undefined && nested !== null && nested !== "") return nested;
+    }
+  }
+
+  return undefined;
+}
+
 function findCrestId(club) {
   const direct = pick(club, [
     "crestAssetId",
@@ -52,10 +79,16 @@ function findCrestId(club) {
 
   if (fromDetails && /^\d+$/.test(String(fromDetails))) return String(fromDetails);
 
-  return "";
+  const recursive = walkObject(club, (key, value) => {
+    if (!looksLikeCrestKey(key)) return undefined;
+    if (/^\d+$/.test(String(value))) return String(value);
+    return undefined;
+  });
+
+  return recursive || "";
 }
 
-function crestUrlFromClub(club) {
+function findExplicitUrl(club) {
   const explicit =
     pick(club?.details, [
       "logoUrl",
@@ -81,6 +114,19 @@ function crestUrlFromClub(club) {
     ]);
 
   if (explicit && /^https?:\/\//i.test(String(explicit))) return String(explicit);
+
+  const recursive = walkObject(club, (key, value) => {
+    if (!looksLikeCrestKey(key)) return undefined;
+    if (typeof value === "string" && /^https?:\/\//i.test(value)) return value;
+    return undefined;
+  });
+
+  return recursive || "";
+}
+
+function crestUrlFromClub(club) {
+  const explicit = findExplicitUrl(club);
+  if (explicit) return explicit;
 
   const crestId = findCrestId(club);
   if (!crestId) return "";
