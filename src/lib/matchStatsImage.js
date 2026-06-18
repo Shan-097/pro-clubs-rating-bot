@@ -1,12 +1,10 @@
 const fs = require("fs/promises");
 const sharp = require("sharp");
+const { resolveClubWebsiteLogo } = require("./clubWebsiteLogos");
 
 const W = 1800;
 const H = 1000;
-const esc = (v) =>
-  String(v ?? "").replace(/[&<>'"]/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&apos;", '"': "&quot;" }[c])
-  );
+const esc = (v) => String(v ?? "").replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&apos;", '"': "&quot;" }[c]));
 const pct = (a, b) => (b ? Math.round((Number(a) / Number(b)) * 100) : 0);
 const pair = (a, b) => `${a} / ${b} (${pct(a, b)}%)`;
 const rating = (v) => (v === null || v === undefined ? "-" : Number(v).toFixed(2));
@@ -31,13 +29,7 @@ function playerName(name) {
 }
 
 function initials(name) {
-  return String(name || "FC")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join("")
-    .toUpperCase();
+  return String(name || "FC").split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase();
 }
 
 function mimeFromPath(filePath) {
@@ -51,16 +43,13 @@ function mimeFromPath(filePath) {
 async function imageDataUri(source) {
   if (!source) return "";
   const value = String(source).trim();
-
   if (value.startsWith("data:image/")) return value;
-
   if (/^https?:\/\//i.test(value)) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 2500);
       const response = await fetch(value, { signal: controller.signal });
       clearTimeout(timeout);
-
       if (!response.ok) return "";
       const contentType = response.headers.get("content-type") || "image/png";
       const buffer = Buffer.from(await response.arrayBuffer());
@@ -70,7 +59,6 @@ async function imageDataUri(source) {
       return "";
     }
   }
-
   try {
     const buffer = await fs.readFile(value);
     if (buffer.length > 1_500_000) return "";
@@ -80,11 +68,17 @@ async function imageDataUri(source) {
   }
 }
 
-function logo(x, y, name, dataUri) {
-  if (dataUri) {
-    return `<circle cx="${x}" cy="${y}" r="45" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.18)"/><image href="${esc(dataUri)}" x="${x - 39}" y="${y - 39}" width="78" height="78" preserveAspectRatio="xMidYMid meet"/>`;
+async function logoData(team, match, fallbackSources = []) {
+  for (const source of [team.logoUrl, ...fallbackSources]) {
+    const data = await imageDataUri(source);
+    if (data) return data;
   }
+  const fromPage = await resolveClubWebsiteLogo(team, match);
+  return imageDataUri(fromPage);
+}
 
+function logo(x, y, name, dataUri) {
+  if (dataUri) return `<circle cx="${x}" cy="${y}" r="45" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.18)"/><image href="${esc(dataUri)}" x="${x - 39}" y="${y - 39}" width="78" height="78" preserveAspectRatio="xMidYMid meet"/>`;
   return `<circle cx="${x}" cy="${y}" r="45" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.18)"/><circle cx="${x}" cy="${y}" r="32" fill="rgba(0,0,0,.35)"/><text x="${x}" y="${y + 9}" text-anchor="middle" class="crest">${esc(initials(name))}</text>`;
 }
 
@@ -96,7 +90,6 @@ function row(r, i) {
   const y = 352 + i * 47;
   const bg = i % 2 === 0 ? "rgba(255,255,255,.026)" : "rgba(255,255,255,.012)";
   const motmStar = r.motm ? star(315, y + 2) : "";
-
   return `<rect x="76" y="${y - 31}" width="1650" height="45" fill="${bg}"/><line x1="76" x2="1726" y1="${y + 18}" y2="${y + 18}" stroke="rgba(255,255,255,.065)"/><text x="105" y="${y}" class="b">${esc(playerName(r.player))}</text>${motmStar}<text x="365" y="${y}">${esc(r.position)}</text><text x="680" y="${y}" class="b">${esc(rating(r.rating))}</text><text x="790" y="${y}" text-anchor="middle" class="b">${esc(r.goals)}</text><text x="890" y="${y}" text-anchor="middle" class="b">${esc(r.shots)}</text><text x="990" y="${y}" text-anchor="middle" class="b">${esc(r.assists)}</text><text x="1130" y="${y}" class="b">${esc(pair(r.passesMade, r.passesAttempted))}</text><text x="1345" y="${y}" class="b">${esc(pair(r.tacklesMade, r.tacklesAttempted))}</text><text x="1585" y="${y}" text-anchor="middle" class="b">${esc(r.saves)}</text>`;
 }
 
@@ -109,25 +102,10 @@ async function buildSvg(match) {
   const left = match.leftTeam || {};
   const right = match.rightTeam || {};
   const rows = (match.rows || []).slice(0, 13);
-  const sub = [match.competition, dateLabel(match.playedAt), `${match.minutesPlayed || 90} minutes played`]
-    .filter(Boolean)
-    .join(" • ");
-  const leftLogo = await imageDataUri(left.logoUrl || process.env.EA_HOME_LOGO_URL || process.env.EA_LEFT_LOGO_URL);
-  const rightLogo = await imageDataUri(right.logoUrl || process.env.EA_DUSTY_LOGO_URL || process.env.EA_AWAY_LOGO_URL || process.env.EA_RIGHT_LOGO_URL);
-  const headers = [
-    [105, "Player"],
-    [365, "Position"],
-    [680, "MR"],
-    [790, "GLS"],
-    [890, "SHT"],
-    [990, "AST"],
-    [1130, "PAS"],
-    [1345, "TKL"],
-    [1585, "SVS"],
-  ]
-    .map(([x, t]) => `<text x="${x}" y="291" ${x >= 790 ? 'text-anchor="middle"' : ""} class="h">${t}</text>`)
-    .join("");
-
+  const sub = [match.competition, dateLabel(match.playedAt), `${match.minutesPlayed || 90} minutes played`].filter(Boolean).join(" • ");
+  const leftLogo = await logoData(left, match, [process.env.EA_HOME_LOGO_URL, process.env.EA_LEFT_LOGO_URL]);
+  const rightLogo = await logoData(right, match, [process.env.EA_DUSTY_LOGO_URL, process.env.EA_AWAY_LOGO_URL, process.env.EA_RIGHT_LOGO_URL]);
+  const headers = [[105, "Player"], [365, "Position"], [680, "MR"], [790, "GLS"], [890, "SHT"], [990, "AST"], [1130, "PAS"], [1345, "TKL"], [1585, "SVS"]].map(([x, t]) => `<text x="${x}" y="291" ${x >= 790 ? 'text-anchor="middle"' : ""} class="h">${t}</text>`).join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><defs><radialGradient id="bg" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#191919"/><stop offset=".55" stop-color="#080808"/><stop offset="1" stop-color="#000"/></radialGradient><linearGradient id="bar" x1="0" x2="1"><stop offset="0" stop-color="rgba(123,44,255,.30)"/><stop offset=".5" stop-color="rgba(255,255,255,.08)"/><stop offset="1" stop-color="rgba(240,211,25,.24)"/></linearGradient><style>text{font:20px Arial,Helvetica,sans-serif;fill:#fff}.team{font:900 47px Arial}.scoreline{font:900 66px Arial;fill:#fff}.sub{font:800 27px Arial;fill:#f4f4f4}.h{font:800 24px Arial;fill:rgba(255,255,255,.92)}.b{font-weight:800}.label{font:800 15px Arial;fill:rgba(255,255,255,.55);letter-spacing:2px}.crest{font:900 20px Arial;fill:#fff}.star{font:900 24px Arial;fill:#f0d319}</style></defs><rect width="100%" height="100%" fill="url(#bg)"/><circle cx="910" cy="615" r="270" fill="rgba(255,255,255,.045)"/><circle cx="910" cy="615" r="420" fill="none" stroke="rgba(255,255,255,.025)" stroke-width="80"/><rect x="55" y="35" width="1690" height="915" rx="34" fill="rgba(0,0,0,.20)" stroke="rgba(255,255,255,.07)"/>${topBar(left, right, leftLogo, rightLogo)}<text x="900" y="190" text-anchor="middle" class="sub">${esc(sub)}</text><rect x="76" y="215" width="1650" height="6" rx="3" fill="url(#bar)"/><text x="105" y="252" class="label">MATCH STATS</text><rect x="76" y="260" width="1650" height="64" rx="16" fill="rgba(255,255,255,.055)" stroke="rgba(255,255,255,.06)"/>${headers}${rows.map(row).join("")}</svg>`;
 }
 
