@@ -1,4 +1,4 @@
-const { crestUrlFromClub, findCrestId } = require("./eaCrestUrl");
+const { crestUrlCandidatesFromClub, crestUrlFromClub, findCrestId } = require("./eaCrestUrl");
 
 const DEFAULT_BASE_URL = `https://${["proclubs", "ea", "com"].join(".")}/api/fc`;
 const DEFAULT_MATCH_TYPES = ["leagueMatch", "friendlyMatch"];
@@ -222,6 +222,10 @@ function clubLogoUrl(club, id) {
   return String(process.env[`EA_LOGO_URL_${id}`] || crestUrlFromClub(club) || "");
 }
 
+function clubLogoUrls(club, id) {
+  return crestUrlCandidatesFromClub(club, id);
+}
+
 function timestampMs(match) {
   const raw = pick(match, ["timestamp", "date", "playedAt", "matchTime"]);
   if (!raw) return null;
@@ -297,12 +301,14 @@ function normalizeEaMatch(match, wantedClubId) {
       name: clubName(opponentInfo, clubName(opponentClub, "Opponent")),
       goals: clubGoals(opponentClub),
       logoUrl: clubLogoUrl(opponentInfo, opponentClubId) || clubLogoUrl(opponentClub, opponentClubId),
+      logoUrls: [...clubLogoUrls(opponentInfo, opponentClubId), ...clubLogoUrls(opponentClub, opponentClubId)],
     },
     rightTeam: {
       clubId: ourClubId,
       name: clubName(ourInfo, clubName(ourClub, process.env.EA_CLUB_NAME || "Dusty Dynamos")),
       goals: clubGoals(ourClub),
       logoUrl: clubLogoUrl(ourInfo, ourClubId) || clubLogoUrl(ourClub, ourClubId),
+      logoUrls: [...clubLogoUrls(ourInfo, ourClubId), ...clubLogoUrls(ourClub, ourClubId)],
     },
     trackedClubName: clubName(ourInfo, clubName(ourClub, process.env.EA_CLUB_NAME || "Dusty Dynamos")),
     trackedPlayers: rows.length,
