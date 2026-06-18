@@ -1,11 +1,27 @@
 const DEFAULT_BASE_URL = `https://${["proclubs", "ea", "com"].join(".")}/api/fc`;
 const DEFAULT_MATCH_TYPES = ["leagueMatch", "friendlyMatch"];
 
+function normalizeKey(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function pick(obj, keys) {
+  if (!obj || typeof obj !== "object") return undefined;
+
   for (const key of keys) {
-    const value = obj?.[key];
+    const value = obj[key];
     if (value !== undefined && value !== null && value !== "") return value;
   }
+
+  const normalizedMap = new Map(
+    Object.entries(obj).map(([key, value]) => [normalizeKey(key), value])
+  );
+
+  for (const key of keys) {
+    const value = normalizedMap.get(normalizeKey(key));
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+
   return undefined;
 }
 
@@ -72,10 +88,10 @@ function timestampMs(match) {
 }
 
 function normalizePlayer(player) {
-  const madePasses = num(pick(player, ["passesmade", "passesMade", "passmade", "pm"]), 0);
-  const passAttempts = num(pick(player, ["passatt", "passesAttempted", "passesatt", "pa"]), 0);
-  const madeTackles = num(pick(player, ["tacklesmade", "tacklesMade", "tacklemade", "tm"]), 0);
-  const tackleAttempts = num(pick(player, ["tackleatt", "tacklesAttempted", "tacklesatt", "ta"]), 0);
+  const madePasses = num(pick(player, ["passesmade", "passesMade", "passmade", "passMade", "completedPasses", "passesCompleted", "pm"]), 0);
+  const passAttempts = num(pick(player, ["passatt", "passAtt", "passattempts", "passAttempts", "passesatt", "passesAtt", "passesattempted", "passesAttempted", "passesattempts", "passesAttempts", "totalpasses", "totalPasses", "passes", "pa"]), 0);
+  const madeTackles = num(pick(player, ["tacklesmade", "tacklesMade", "tacklemade", "tackleMade", "successfulTackles", "tm"]), 0);
+  const tackleAttempts = num(pick(player, ["tackleatt", "tackleAtt", "tackleattempts", "tackleAttempts", "tacklesatt", "tacklesAtt", "tacklesattempted", "tacklesAttempted", "tacklesattempts", "tacklesAttempts", "totaltackles", "totalTackles", "tackles", "ta"]), 0);
   const rating = pick(player, ["rating", "matchRating", "avgRating", "rat"]);
 
   return {
