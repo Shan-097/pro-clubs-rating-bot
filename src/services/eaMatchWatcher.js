@@ -18,14 +18,41 @@ function numberEnv(name, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function booleanEnv(name, fallback = false) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || raw === "") return fallback;
+  return ["1", "true", "yes", "y", "on"].includes(String(raw).trim().toLowerCase());
+}
+
+function hasUsableStats(match) {
+  return Boolean(match?.matchId && Array.isArray(match.rows) && match.rows.length > 0);
+}
+
 function shouldPostMatch(match) {
-  if (!match?.matchId) return false;
-  if (!Array.isArray(match.rows) || match.rows.length === 0) return false;
+  if (!hasUsableStats(match)) return false;
 
   const lookbackMinutes = numberEnv("EA_POST_LOOKBACK_MINUTES", 180);
   if (!match.timestampMs || lookbackMinutes <= 0) return true;
 
   return match.timestampMs >= Date.now() - lookbackMinutes * 60 * 1000;
+}
+
+function selectMatchesToConsider(rawMatches, clubId) {
+  const postLastOnly = booleanEnv("EA_POST_LAST_MATCH_ONLY", false);
+
+  const normalized = rawMatches
+    .map((match) => normalizeEaMatch(match, clubId))
+    .filter(hasUsableStats);
+
+  if (postLastOnly) {
+    return normalized
+      .sort((a, b) => (b.timestampMs || 0) - (a.timestampMs || 0))
+      .slice(0, 1);
+  }
+
+  return normalized
+    .filter(shouldPostMatch)
+    .sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
 }
 
 async function sendStatsImage(channel, match) {
@@ -66,12 +93,11 @@ async function checkAndPostRecentEaMatches(client) {
       matchTypes: getConfiguredMatchTypes(),
     });
 
-    const matches = rawMatches
-      .map((match) => normalizeEaMatch(match, clubId))
-      .filter(shouldPostMatch)
-      .sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
-
-    const maxPosts = numberEnv("EA_MAX_POSTS_PER_CHECK", 3);
+    const matches = selectMatchesToConsider(rawMatches, clubId);
+    const maxPosts = booleanEnv("EA_POST_LAST_MATCH_ONLY", false)
+      ? 1
+      : numberEnv("EA_MAX_POSTS_PER_CHECK", 3);
+    const repostLastMatch = booleanEnv("EA_REPOST_LAST_MATCH", false);
     const channel = await client.channels.fetch(statsChannelId);
 
     if (!channel || typeof channel.send !== "function") {
@@ -82,7 +108,7 @@ async function checkAndPostRecentEaMatches(client) {
 
     for (const match of matches) {
       if (postedCount >= maxPosts) break;
-      if (await hasPostedMatch(match.matchId)) continue;
+      if (!repostLastMatch && (await hasPostedMatch(match.matchId))) continue;
 
       const message = await sendStatsImage(channel, match);
       await markMatchPosted({
