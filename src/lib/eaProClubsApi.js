@@ -115,34 +115,70 @@ function collectClubIds(matches) {
   return [...ids];
 }
 
+function mergeClubInfo(target, payload, requestedId) {
+  if (!payload || typeof payload !== "object") return false;
+
+  if (payload[requestedId]) {
+    target[requestedId] = payload[requestedId];
+    return true;
+  }
+
+  const values = Object.values(payload);
+  const directClub = clubId("", payload) === String(requestedId) ? payload : null;
+  const nestedClub = values.find((club) => club && typeof club === "object" && clubId("", club) === String(requestedId));
+  const club = directClub || nestedClub;
+
+  if (club) {
+    target[requestedId] = club;
+    return true;
+  }
+
+  return false;
+}
+
 async function fetchClubInfo({ clubIds, platform }) {
   if (!clubIds.length || process.env.EA_FETCH_CLUB_INFO === "false") return {};
 
   const baseUrl = (process.env.EA_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
   const info = {};
-  const chunkSize = 8;
+  const paramNames = (process.env.EA_CLUB_INFO_ID_PARAMS || "clubId,id,club")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 
-  for (let i = 0; i < clubIds.length; i += chunkSize) {
-    const chunk = clubIds.slice(i, i + chunkSize);
-    const url = new URL(`${baseUrl}/clubs/info`);
-    url.searchParams.set("platform", platform);
-    url.searchParams.set("club" + "Ids", chunk.join(","));
+  for (const id of clubIds) {
+    let fetched = false;
 
-    try {
-      const payload = await fetchEaJson(url);
-      Object.assign(info, payload || {});
-    } catch (error) {
-      console.warn(`EA club info fetch failed for ${chunk.join(",")}: ${error.message}`);
+    for (const paramName of paramNames) {
+      const url = new URL(`${baseUrl}/clubs/info`);
+      url.searchParams.set("platform", platform);
+      url.searchParams.set(paramName, id);
+
+      try {
+        const payload = await fetchEaJson(url);
+        if (mergeClubInfo(info, payload, id)) {
+          fetched = true;
+          break;
+        }
+      } catch (error) {
+        if (process.env.EA_LOG_CLUB_INFO === "true") {
+          console.warn(`EA club info failed for ${id} with ${paramName}: ${error.message}`);
+        }
+      }
+    }
+
+    if (!fetched && process.env.EA_LOG_CLUB_INFO === "true") {
+      console.warn(`EA club info not found for ${id}.`);
     }
   }
 
   if (process.env.EA_LOG_CLUB_INFO === "true") {
     const sample = Object.entries(info).slice(0, 2).map(([id, club]) => ({
       id,
-      keys: Object.keys(club || {}).slice(0, 40),
-      detailsKeys: Object.keys(club?.details || {}).slice(0, 40),
+      keys: Object.keys(club || {}).slice(0, 60),
+      detailsKeys: Object.keys(club?.details || {}).slice(0, 60),
       crestFields: {
-        crestAssetId: pick(club, ["crestAssetId", "crestId", "crest", "customCrest"]),
+        crestAssetId: pick(club, ["crestAssetId", "crestId", "crest", "customCrest", "assetId"]),
         logoUrl: clubLogoUrl(club, id),
       },
     }));
