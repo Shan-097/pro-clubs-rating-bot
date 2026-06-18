@@ -86,9 +86,10 @@ async function imageDataUri(source) {
 }
 
 async function logoData(team, match, fallbackSources = []) {
-  const sources = [team.logoUrl, ...fallbackSources].filter(Boolean);
-  if (process.env.EA_LOGO_DEBUG === "true") console.log(`Logo candidates for ${team.name}:`, sources);
-  for (const source of sources) {
+  const sources = [team.logoUrl, ...(team.logoUrls || []), ...fallbackSources].filter(Boolean);
+  const uniqueSources = [...new Set(sources)];
+  if (process.env.EA_LOGO_DEBUG === "true") console.log(`Logo candidates for ${team.name}:`, uniqueSources);
+  for (const source of uniqueSources) {
     const data = await imageDataUri(source);
     if (data) return data;
   }
