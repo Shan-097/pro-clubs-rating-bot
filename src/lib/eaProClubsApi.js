@@ -81,6 +81,77 @@ function getConfiguredMatchTypes() {
     .filter(Boolean);
 }
 
+async function fetchEaJson(url) {
+  const response = await fetch(url, { headers: { Accept: "application/json" } });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`EA API error ${response.status}: ${text.slice(0, 250)}`);
+  return JSON.parse(text);
+}
+
+function extractMatches(data) {
+  return Array.isArray(data) ? data : data.matches || data.data || Object.values(data || {});
+}
+
+function clubId(key, club) {
+  return String(pick(club, ["clubId", "id"]) || pick(club?.details, ["clubId", "id"]) || key || "");
+}
+
+function clubInfoById(info, id) {
+  if (!info || !id) return null;
+  if (info[id]) return info[id];
+  const wanted = String(id);
+  return Object.values(info).find((club) => clubId("", club) === wanted) || null;
+}
+
+function collectClubIds(matches) {
+  const ids = new Set();
+  for (const match of matches) {
+    const clubs = match.clubs || match.clubsInfo || match.clubInfo || {};
+    for (const [key, club] of Object.entries(clubs)) {
+      const id = clubId(key, club);
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
+async function fetchClubInfo({ clubIds, platform }) {
+  if (!clubIds.length || process.env.EA_FETCH_CLUB_INFO === "false") return {};
+
+  const baseUrl = (process.env.EA_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
+  const info = {};
+  const chunkSize = 8;
+
+  for (let i = 0; i < clubIds.length; i += chunkSize) {
+    const chunk = clubIds.slice(i, i + chunkSize);
+    const url = new URL(`${baseUrl}/clubs/info`);
+    url.searchParams.set("platform", platform);
+    url.searchParams.set("club" + "Ids", chunk.join(","));
+
+    try {
+      const payload = await fetchEaJson(url);
+      Object.assign(info, payload || {});
+    } catch (error) {
+      console.warn(`EA club info fetch failed for ${chunk.join(",")}: ${error.message}`);
+    }
+  }
+
+  if (process.env.EA_LOG_CLUB_INFO === "true") {
+    const sample = Object.entries(info).slice(0, 2).map(([id, club]) => ({
+      id,
+      keys: Object.keys(club || {}).slice(0, 40),
+      detailsKeys: Object.keys(club?.details || {}).slice(0, 40),
+      crestFields: {
+        crestAssetId: pick(club, ["crestAssetId", "crestId", "crest", "customCrest"]),
+        logoUrl: clubLogoUrl(club, id),
+      },
+    }));
+    console.log("EA club info sample:", JSON.stringify(sample, null, 2));
+  }
+
+  return info;
+}
+
 async function fetchRecentClubMatches({ clubId, platform, matchTypes }) {
   const allMatches = [];
   const baseUrl = (process.env.EA_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
@@ -92,20 +163,13 @@ async function fetchRecentClubMatches({ clubId, platform, matchTypes }) {
     url.searchParams.set("platform", platform);
     url.searchParams.set("club" + "Ids", clubId);
 
-    const response = await fetch(url, { headers: { Accept: "application/json" } });
-    const text = await response.text();
-    if (!response.ok) throw new Error(`EA API error ${response.status}: ${text.slice(0, 250)}`);
-
-    const data = JSON.parse(text);
-    const matches = Array.isArray(data) ? data : data.matches || data.data || Object.values(data || {});
+    const data = await fetchEaJson(url);
+    const matches = extractMatches(data);
     allMatches.push(...matches.filter(Boolean).map((match) => ({ ...match, _eaMatchType: matchType })));
   }
 
-  return allMatches;
-}
-
-function clubId(key, club) {
-  return String(pick(club, ["clubId", "id"]) || pick(club?.details, ["clubId", "id"]) || key || "");
+  const clubInfo = await fetchClubInfo({ clubIds: collectClubIds(allMatches), platform });
+  return allMatches.map((match) => ({ ...match, _eaClubInfo: clubInfo }));
 }
 
 function clubName(club, fallback) {
@@ -119,8 +183,8 @@ function clubGoals(club) {
 function clubLogoUrl(club, id) {
   return String(
     process.env[`EA_LOGO_URL_${id}`] ||
-      pick(club?.details, ["logoUrl", "crestUrl", "crestURL", "clubLogoUrl", "badgeUrl", "teamLogoUrl", "imageUrl"]) ||
-      pick(club, ["logoUrl", "crestUrl", "crestURL", "clubLogoUrl", "badgeUrl", "teamLogoUrl", "imageUrl"]) ||
+      pick(club?.details, ["logoUrl", "crestUrl", "crestURL", "clubLogoUrl", "badgeUrl", "teamLogoUrl", "imageUrl", "logo", "crestImageUrl"]) ||
+      pick(club, ["logoUrl", "crestUrl", "crestURL", "clubLogoUrl", "badgeUrl", "teamLogoUrl", "imageUrl", "logo", "crestImageUrl"]) ||
       ""
   );
 }
@@ -173,6 +237,9 @@ function normalizeEaMatch(match, wantedClubId) {
   const [opponentKey, opponentClub] = opponentEntry;
   const ourClubId = clubId(ourKey, ourClub);
   const opponentClubId = clubId(opponentKey, opponentClub);
+  const info = match._eaClubInfo || {};
+  const ourInfo = clubInfoById(info, ourClubId) || {};
+  const opponentInfo = clubInfoById(info, opponentClubId) || {};
   const root = match.players || match.playerStats || {};
   const rows = items(root[ourKey] || root[String(wantedClubId)] || ourClub.players || ourClub.playerStats)
     .map(normalizePlayer)
@@ -192,9 +259,19 @@ function normalizeEaMatch(match, wantedClubId) {
     timestampMs: ts,
     minutesPlayed: num(pick(match, ["minutesPlayed", "gameTime", "matchLength"]), 90),
     gameNumber: pick(ourClub, ["gameNumber", "matchNumber"]),
-    leftTeam: { clubId: opponentClubId, name: clubName(opponentClub, "Opponent"), goals: clubGoals(opponentClub), logoUrl: clubLogoUrl(opponentClub, opponentClubId) },
-    rightTeam: { clubId: ourClubId, name: clubName(ourClub, process.env.EA_CLUB_NAME || "Dusty Dynamos"), goals: clubGoals(ourClub), logoUrl: clubLogoUrl(ourClub, ourClubId) },
-    trackedClubName: clubName(ourClub, process.env.EA_CLUB_NAME || "Dusty Dynamos"),
+    leftTeam: {
+      clubId: opponentClubId,
+      name: clubName(opponentInfo, clubName(opponentClub, "Opponent")),
+      goals: clubGoals(opponentClub),
+      logoUrl: clubLogoUrl(opponentInfo, opponentClubId) || clubLogoUrl(opponentClub, opponentClubId),
+    },
+    rightTeam: {
+      clubId: ourClubId,
+      name: clubName(ourInfo, clubName(ourClub, process.env.EA_CLUB_NAME || "Dusty Dynamos")),
+      goals: clubGoals(ourClub),
+      logoUrl: clubLogoUrl(ourInfo, ourClubId) || clubLogoUrl(ourClub, ourClubId),
+    },
+    trackedClubName: clubName(ourInfo, clubName(ourClub, process.env.EA_CLUB_NAME || "Dusty Dynamos")),
     trackedPlayers: rows.length,
     rows,
   };
