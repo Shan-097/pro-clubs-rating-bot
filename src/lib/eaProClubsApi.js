@@ -28,27 +28,22 @@ function getConfiguredMatchTypes() {
     .filter(Boolean);
 }
 
-async function fetchRecentClubMatches({ clubId, platform, matchTypes }) {
-  const allMatches = [];
+async function fetchRecentClubMatches({ clubId, platform }) {
   const baseUrl = (process.env.EA_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
-  const selectedTypes = matchTypes?.length ? matchTypes : getConfiguredMatchTypes();
+  const url = new URL(`${baseUrl}/clubs/matches`);
+  url.searchParams.set("platform", platform);
+  url.searchParams.set("club" + "Ids", clubId);
 
-  for (const matchType of selectedTypes) {
-    const url = new URL(`${baseUrl}/clubs/matches`);
-    url.searchParams.set("matchType", matchType);
-    url.searchParams.set("platform", platform);
-    url.searchParams.set("club" + "Ids", clubId);
+  const response = await fetch(url, { headers: { Accept: "application/json" } });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`EA API error ${response.status}: ${text.slice(0, 250)}`);
 
-    const response = await fetch(url, { headers: { Accept: "application/json" } });
-    const text = await response.text();
-    if (!response.ok) throw new Error(`EA API error ${response.status}: ${text.slice(0, 250)}`);
-
-    const data = JSON.parse(text);
-    const matches = Array.isArray(data) ? data : data.matches || data.data || Object.values(data || {});
-    allMatches.push(...matches.filter(Boolean).map((match) => ({ ...match, _eaMatchType: matchType })));
-  }
-
-  return allMatches;
+  const data = JSON.parse(text);
+  const matches = Array.isArray(data) ? data : data.matches || data.data || Object.values(data || {});
+  return matches.filter(Boolean).map((match) => ({
+    ...match,
+    _eaMatchType: String(pick(match, ["matchType", "gameType", "type", "cupName", "competition"]) || ""),
+  }));
 }
 
 function clubId(key, club) {
@@ -94,6 +89,13 @@ function normalizePlayer(player) {
   };
 }
 
+function competitionName(match, rawType) {
+  const value = String(rawType || pick(match, ["matchType", "gameType", "type", "cupName", "competition"]) || "").toLowerCase();
+  if (value.includes("friendly") || value.includes("13")) return "Friendly";
+  if (value.includes("league") || value.includes("9")) return "League";
+  return "Match";
+}
+
 function normalizeEaMatch(match, wantedClubId) {
   const clubEntries = Object.entries(match.clubs || match.clubsInfo || match.clubInfo || {});
   const ourEntry = clubEntries.find(([key, club]) => clubId(key, club) === String(wantedClubId));
@@ -110,13 +112,13 @@ function normalizeEaMatch(match, wantedClubId) {
   if (rows[0] && !rows.some((row) => row.motm) && rows[0].rating !== null) rows[0].motm = true;
 
   const ts = timestampMs(match);
+  const rawType = match._eaMatchType;
   const matchId = String(pick(match, ["matchId", "id", "gameId", "fixtureId"]) || [ts || "time", opponentKey, ourKey, clubGoals(opponentClub), clubGoals(ourClub)].join("-"));
-  const type = String(match._eaMatchType || "");
 
   return {
     matchId,
-    competition: type.includes("13") ? "Friendly" : "League",
-    matchType: match._eaMatchType,
+    competition: competitionName(match, rawType),
+    matchType: rawType,
     playedAt: ts ? new Date(ts).toISOString() : null,
     timestampMs: ts,
     minutesPlayed: num(pick(match, ["minutesPlayed", "gameTime", "matchLength"]), 90),
