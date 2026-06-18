@@ -47,33 +47,53 @@ async function imageDataUri(source) {
   if (/^https?:\/\//i.test(value)) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2500);
-      const response = await fetch(value, { signal: controller.signal });
+      const timeout = setTimeout(() => controller.abort(), 6000);
+      const response = await fetch(value, {
+        signal: controller.signal,
+        headers: {
+          Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+          "User-Agent": "Mozilla/5.0 Dusty-Dynamos-Bot/1.0",
+          Referer: "https://www.ea.com/",
+        },
+      });
       clearTimeout(timeout);
-      if (!response.ok) return "";
+      if (!response.ok) {
+        if (process.env.EA_LOGO_DEBUG === "true") console.warn(`Logo fetch failed ${response.status}: ${value}`);
+        return "";
+      }
       const contentType = response.headers.get("content-type") || "image/png";
       const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.length > 1_500_000) return "";
+      if (buffer.length > 1_500_000) {
+        if (process.env.EA_LOGO_DEBUG === "true") console.warn(`Logo too large ${buffer.length}: ${value}`);
+        return "";
+      }
+      if (process.env.EA_LOGO_DEBUG === "true") console.log(`Logo loaded: ${value}`);
       return `data:${contentType};base64,${buffer.toString("base64")}`;
-    } catch {
+    } catch (error) {
+      if (process.env.EA_LOGO_DEBUG === "true") console.warn(`Logo fetch exception: ${value} ${error.message}`);
       return "";
     }
   }
   try {
     const buffer = await fs.readFile(value);
     if (buffer.length > 1_500_000) return "";
+    if (process.env.EA_LOGO_DEBUG === "true") console.log(`Logo file loaded: ${value}`);
     return `data:${mimeFromPath(value)};base64,${buffer.toString("base64")}`;
-  } catch {
+  } catch (error) {
+    if (process.env.EA_LOGO_DEBUG === "true") console.warn(`Logo file failed: ${value} ${error.message}`);
     return "";
   }
 }
 
 async function logoData(team, match, fallbackSources = []) {
-  for (const source of [team.logoUrl, ...fallbackSources]) {
+  const sources = [team.logoUrl, ...fallbackSources].filter(Boolean);
+  if (process.env.EA_LOGO_DEBUG === "true") console.log(`Logo candidates for ${team.name}:`, sources);
+  for (const source of sources) {
     const data = await imageDataUri(source);
     if (data) return data;
   }
   const fromPage = await resolveClubWebsiteLogo(team, match);
+  if (process.env.EA_LOGO_DEBUG === "true" && fromPage) console.log(`Logo from lookup page for ${team.name}: ${fromPage}`);
   return imageDataUri(fromPage);
 }
 
