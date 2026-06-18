@@ -11,6 +11,24 @@ const commands = [
   new SlashCommandBuilder()
     .setName("match")
     .setDescription("Start ratings for the pending lineup.")
+    .addBooleanOption((option) =>
+      option
+        .setName("ecp")
+        .setDescription("Request ratings from ECP for this match.")
+        .setRequired(false)
+    )
+    .addBooleanOption((option) =>
+      option
+        .setName("rob")
+        .setDescription("Request ratings from Rob for this match.")
+        .setRequired(false)
+    )
+    .addBooleanOption((option) =>
+      option
+        .setName("birdie")
+        .setDescription("Request ratings from Birdie for this match.")
+        .setRequired(false)
+    )
     .toJSON(),
 
   new SlashCommandBuilder()
