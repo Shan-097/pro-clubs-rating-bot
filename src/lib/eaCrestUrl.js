@@ -51,7 +51,24 @@ function walkObject(value, visitor, seen = new Set()) {
   return undefined;
 }
 
+function normalizeTeamCrestId(value) {
+  if (!/^\d+$/.test(String(value))) return "";
+  const id = Number(value);
+
+  if (!Number.isFinite(id)) return "";
+  if (id > 0 && id < 1000) return String(id + 100);
+  return String(value);
+}
+
 function findCrestId(club) {
+  const teamValue = pick(club, ["TEAM", "team", "teamId"]) || pick(club?.details, ["TEAM", "team", "teamId"]);
+  const fromTeam = normalizeTeamCrestId(teamValue);
+  if (fromTeam) return fromTeam;
+
+  const customKit = club?.details?.customKit || club?.customKit || {};
+  const fromCustomKit = pick(customKit, ["crestAssetId", "crestId", "crest", "badgeId", "logoId"]);
+  if (fromCustomKit && /^\d+$/.test(String(fromCustomKit))) return String(fromCustomKit);
+
   const direct = pick(club, [
     "crestAssetId",
     "crestId",
