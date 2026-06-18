@@ -1,5 +1,5 @@
 const DEFAULT_BASE_URL = `https://${["proclubs", "ea", "com"].join(".")}/api/fc`;
-const DEFAULT_MATCH_TYPES = ["gameType9", "gameType13"];
+const DEFAULT_MATCH_TYPES = ["leagueMatch", "friendlyMatch"];
 
 function pick(obj, keys) {
   for (const key of keys) {
@@ -28,22 +28,27 @@ function getConfiguredMatchTypes() {
     .filter(Boolean);
 }
 
-async function fetchRecentClubMatches({ clubId, platform }) {
+async function fetchRecentClubMatches({ clubId, platform, matchTypes }) {
+  const allMatches = [];
   const baseUrl = (process.env.EA_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
-  const url = new URL(`${baseUrl}/clubs/matches`);
-  url.searchParams.set("platform", platform);
-  url.searchParams.set("club" + "Ids", clubId);
+  const selectedTypes = matchTypes?.length ? matchTypes : getConfiguredMatchTypes();
 
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`EA API error ${response.status}: ${text.slice(0, 250)}`);
+  for (const matchType of selectedTypes) {
+    const url = new URL(`${baseUrl}/clubs/matches`);
+    url.searchParams.set("matchType", matchType);
+    url.searchParams.set("platform", platform);
+    url.searchParams.set("club" + "Ids", clubId);
 
-  const data = JSON.parse(text);
-  const matches = Array.isArray(data) ? data : data.matches || data.data || Object.values(data || {});
-  return matches.filter(Boolean).map((match) => ({
-    ...match,
-    _eaMatchType: String(pick(match, ["matchType", "gameType", "type", "cupName", "competition"]) || ""),
-  }));
+    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    const text = await response.text();
+    if (!response.ok) throw new Error(`EA API error ${response.status}: ${text.slice(0, 250)}`);
+
+    const data = JSON.parse(text);
+    const matches = Array.isArray(data) ? data : data.matches || data.data || Object.values(data || {});
+    allMatches.push(...matches.filter(Boolean).map((match) => ({ ...match, _eaMatchType: matchType })));
+  }
+
+  return allMatches;
 }
 
 function clubId(key, club) {
@@ -91,8 +96,8 @@ function normalizePlayer(player) {
 
 function competitionName(match, rawType) {
   const value = String(rawType || pick(match, ["matchType", "gameType", "type", "cupName", "competition"]) || "").toLowerCase();
-  if (value.includes("friendly") || value.includes("13")) return "Friendly";
-  if (value.includes("league") || value.includes("9")) return "League";
+  if (value.includes("friendly")) return "Friendly";
+  if (value.includes("league")) return "League";
   return "Match";
 }
 
