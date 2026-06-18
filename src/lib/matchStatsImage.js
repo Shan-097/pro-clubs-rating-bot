@@ -1,3 +1,4 @@
+const fs = require("fs/promises");
 const sharp = require("sharp");
 
 const W = 1800;
@@ -39,20 +40,41 @@ function initials(name) {
     .toUpperCase();
 }
 
-async function imageDataUri(url) {
-  if (!url || !/^https?:\/\//i.test(url)) return "";
+function mimeFromPath(filePath) {
+  const lower = String(filePath).toLowerCase();
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".webp")) return "image/webp";
+  return "image/png";
+}
+
+async function imageDataUri(source) {
+  if (!source) return "";
+  const value = String(source).trim();
+
+  if (value.startsWith("data:image/")) return value;
+
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2500);
+      const response = await fetch(value, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!response.ok) return "";
+      const contentType = response.headers.get("content-type") || "image/png";
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.length > 1_500_000) return "";
+      return `data:${contentType};base64,${buffer.toString("base64")}`;
+    } catch {
+      return "";
+    }
+  }
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2500);
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-
-    if (!response.ok) return "";
-    const contentType = response.headers.get("content-type") || "image/png";
-    const buffer = Buffer.from(await response.arrayBuffer());
+    const buffer = await fs.readFile(value);
     if (buffer.length > 1_500_000) return "";
-    return `data:${contentType};base64,${buffer.toString("base64")}`;
+    return `data:${mimeFromPath(value)};base64,${buffer.toString("base64")}`;
   } catch {
     return "";
   }
@@ -60,10 +82,10 @@ async function imageDataUri(url) {
 
 function logo(x, y, name, dataUri) {
   if (dataUri) {
-    return `<circle cx="${x}" cy="${y}" r="38" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.16)"/><image href="${esc(dataUri)}" x="${x - 34}" y="${y - 34}" width="68" height="68" preserveAspectRatio="xMidYMid meet"/>`;
+    return `<circle cx="${x}" cy="${y}" r="45" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.18)"/><image href="${esc(dataUri)}" x="${x - 39}" y="${y - 39}" width="78" height="78" preserveAspectRatio="xMidYMid meet"/>`;
   }
 
-  return `<circle cx="${x}" cy="${y}" r="38" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.16)"/><text x="${x}" y="${y + 9}" text-anchor="middle" class="crest">${esc(initials(name))}</text>`;
+  return `<circle cx="${x}" cy="${y}" r="45" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.18)"/><circle cx="${x}" cy="${y}" r="32" fill="rgba(0,0,0,.35)"/><text x="${x}" y="${y + 9}" text-anchor="middle" class="crest">${esc(initials(name))}</text>`;
 }
 
 function star(x, y) {
@@ -71,7 +93,7 @@ function star(x, y) {
 }
 
 function row(r, i) {
-  const y = 342 + i * 47;
+  const y = 352 + i * 47;
   const bg = i % 2 === 0 ? "rgba(255,255,255,.026)" : "rgba(255,255,255,.012)";
   const motmStar = r.motm ? star(315, y + 2) : "";
 
@@ -80,7 +102,7 @@ function row(r, i) {
 
 function topBar(left, right, leftLogo, rightLogo) {
   const score = `${left.goals ?? 0} - ${right.goals ?? 0}`;
-  return `<text x="390" y="114" text-anchor="end" class="team">${esc(shortName(left.name || "Opponent", 22))}</text>${logo(455, 99, left.name, leftLogo)}<text x="900" y="118" text-anchor="middle" class="scoreline">${esc(score)}</text>${logo(1345, 99, right.name, rightLogo)}<text x="1410" y="114" class="team">${esc(shortName(right.name || "Dusty Dynamos", 22))}</text>`;
+  return `<text x="385" y="120" text-anchor="end" class="team">${esc(shortName(left.name || "Opponent", 22))}</text>${logo(465, 101, left.name, leftLogo)}<text x="900" y="125" text-anchor="middle" class="scoreline">${esc(score)}</text>${logo(1335, 101, right.name, rightLogo)}<text x="1415" y="120" class="team">${esc(shortName(right.name || "Dusty Dynamos", 22))}</text>`;
 }
 
 async function buildSvg(match) {
@@ -90,8 +112,8 @@ async function buildSvg(match) {
   const sub = [match.competition, dateLabel(match.playedAt), `${match.minutesPlayed || 90} minutes played`]
     .filter(Boolean)
     .join(" • ");
-  const leftLogo = await imageDataUri(left.logoUrl);
-  const rightLogo = await imageDataUri(right.logoUrl || process.env.EA_DUSTY_LOGO_URL);
+  const leftLogo = await imageDataUri(left.logoUrl || process.env.EA_HOME_LOGO_URL || process.env.EA_LEFT_LOGO_URL);
+  const rightLogo = await imageDataUri(right.logoUrl || process.env.EA_DUSTY_LOGO_URL || process.env.EA_AWAY_LOGO_URL || process.env.EA_RIGHT_LOGO_URL);
   const headers = [
     [105, "Player"],
     [365, "Position"],
@@ -103,10 +125,10 @@ async function buildSvg(match) {
     [1345, "TKL"],
     [1585, "SVS"],
   ]
-    .map(([x, t]) => `<text x="${x}" y="281" ${x >= 790 ? 'text-anchor="middle"' : ""} class="h">${t}</text>`)
+    .map(([x, t]) => `<text x="${x}" y="291" ${x >= 790 ? 'text-anchor="middle"' : ""} class="h">${t}</text>`)
     .join("");
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><defs><radialGradient id="bg" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#191919"/><stop offset=".55" stop-color="#080808"/><stop offset="1" stop-color="#000"/></radialGradient><linearGradient id="bar" x1="0" x2="1"><stop offset="0" stop-color="rgba(123,44,255,.30)"/><stop offset=".5" stop-color="rgba(255,255,255,.08)"/><stop offset="1" stop-color="rgba(240,211,25,.24)"/></linearGradient><style>text{font:20px Arial,Helvetica,sans-serif;fill:#fff}.team{font:800 42px Arial}.scoreline{font:900 48px Arial;fill:#fff}.sub{font:700 24px Arial;fill:#f4f4f4}.muted{font:22px Arial;fill:rgba(255,255,255,.72)}.h{font:800 24px Arial;fill:rgba(255,255,255,.92)}.b{font-weight:800}.label{font:800 15px Arial;fill:rgba(255,255,255,.55);letter-spacing:2px}.crest{font:900 20px Arial;fill:#fff}.star{font:900 24px Arial;fill:#f0d319}</style></defs><rect width="100%" height="100%" fill="url(#bg)"/><circle cx="910" cy="615" r="270" fill="rgba(255,255,255,.045)"/><circle cx="910" cy="615" r="420" fill="none" stroke="rgba(255,255,255,.025)" stroke-width="80"/><rect x="55" y="35" width="1690" height="915" rx="34" fill="rgba(0,0,0,.20)" stroke="rgba(255,255,255,.07)"/><rect x="76" y="186" width="1650" height="6" rx="3" fill="url(#bar)"/>${topBar(left, right, leftLogo, rightLogo)}<text x="900" y="166" text-anchor="middle" class="sub">${esc(sub)}</text><text x="900" y="217" text-anchor="middle" class="muted">${esc(match.trackedClubName || right.name)} • ${esc(match.trackedPlayers || rows.length)} tracked players</text><rect x="76" y="240" width="1650" height="64" rx="16" fill="rgba(255,255,255,.055)" stroke="rgba(255,255,255,.06)"/><text x="105" y="230" class="label">MATCH STATS</text>${headers}${rows.map(row).join("")}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><defs><radialGradient id="bg" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#191919"/><stop offset=".55" stop-color="#080808"/><stop offset="1" stop-color="#000"/></radialGradient><linearGradient id="bar" x1="0" x2="1"><stop offset="0" stop-color="rgba(123,44,255,.30)"/><stop offset=".5" stop-color="rgba(255,255,255,.08)"/><stop offset="1" stop-color="rgba(240,211,25,.24)"/></linearGradient><style>text{font:20px Arial,Helvetica,sans-serif;fill:#fff}.team{font:900 47px Arial}.scoreline{font:900 66px Arial;fill:#fff}.sub{font:800 27px Arial;fill:#f4f4f4}.h{font:800 24px Arial;fill:rgba(255,255,255,.92)}.b{font-weight:800}.label{font:800 15px Arial;fill:rgba(255,255,255,.55);letter-spacing:2px}.crest{font:900 20px Arial;fill:#fff}.star{font:900 24px Arial;fill:#f0d319}</style></defs><rect width="100%" height="100%" fill="url(#bg)"/><circle cx="910" cy="615" r="270" fill="rgba(255,255,255,.045)"/><circle cx="910" cy="615" r="420" fill="none" stroke="rgba(255,255,255,.025)" stroke-width="80"/><rect x="55" y="35" width="1690" height="915" rx="34" fill="rgba(0,0,0,.20)" stroke="rgba(255,255,255,.07)"/>${topBar(left, right, leftLogo, rightLogo)}<text x="900" y="190" text-anchor="middle" class="sub">${esc(sub)}</text><rect x="76" y="215" width="1650" height="6" rx="3" fill="url(#bar)"/><text x="105" y="252" class="label">MATCH STATS</text><rect x="76" y="260" width="1650" height="64" rx="16" fill="rgba(255,255,255,.055)" stroke="rgba(255,255,255,.06)"/>${headers}${rows.map(row).join("")}</svg>`;
 }
 
 async function renderMatchStatsImage(match) {
