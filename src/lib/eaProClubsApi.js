@@ -1,3 +1,5 @@
+const { crestUrlFromClub, findCrestId } = require("./eaCrestUrl");
+
 const DEFAULT_BASE_URL = `https://${["proclubs", "ea", "com"].join(".")}/api/fc`;
 const DEFAULT_MATCH_TYPES = ["leagueMatch", "friendlyMatch"];
 
@@ -178,7 +180,7 @@ async function fetchClubInfo({ clubIds, platform }) {
       keys: Object.keys(club || {}).slice(0, 60),
       detailsKeys: Object.keys(club?.details || {}).slice(0, 60),
       crestFields: {
-        crestAssetId: pick(club, ["crestAssetId", "crestId", "crest", "customCrest", "assetId"]),
+        crestId: findCrestId(club),
         logoUrl: clubLogoUrl(club, id),
       },
     }));
@@ -217,12 +219,7 @@ function clubGoals(club) {
 }
 
 function clubLogoUrl(club, id) {
-  return String(
-    process.env[`EA_LOGO_URL_${id}`] ||
-      pick(club?.details, ["logoUrl", "crestUrl", "crestURL", "clubLogoUrl", "badgeUrl", "teamLogoUrl", "imageUrl", "logo", "crestImageUrl"]) ||
-      pick(club, ["logoUrl", "crestUrl", "crestURL", "clubLogoUrl", "badgeUrl", "teamLogoUrl", "imageUrl", "logo", "crestImageUrl"]) ||
-      ""
-  );
+  return String(process.env[`EA_LOGO_URL_${id}`] || crestUrlFromClub(club) || "");
 }
 
 function timestampMs(match) {
