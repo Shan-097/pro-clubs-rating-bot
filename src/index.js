@@ -12,6 +12,7 @@ const {
 
 const { handleAvailabilityCommand } = require("./flows/availabilityFlow");
 const { handleReplaceCommand } = require("./flows/replacementFlow");
+const { startEaMatchWatcher } = require("./services/eaMatchWatcher");
 
 const {
   startLineupFlow,
@@ -31,6 +32,7 @@ const client = new Client({
 
 client.once(Events.ClientReady, () => {
   console.log(`Logged in as ${client.user.tag}`);
+  startEaMatchWatcher(client);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
